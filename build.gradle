@@ -1,0 +1,108 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.gradle.userdev' version '7.0.192'
+}
+
+group = mod_group
+version = mod_version
+base { archivesName = "${mod_id}-neoforge-${minecraft_version}" }
+
+java {
+    toolchain {
+        // 必须用 21：本机 foojay 拉下来的 Adoptium 17 的 zipfs 有缺陷
+        // （FileSystems.newFileSystem(zip, Map.of("create","true")) 之后仍被判定为
+        //  read-only，写入任何条目都抛 ReadOnlyFileSystemException），
+        // 会导致 NeoForm 的 accessTransformer 步骤（jst）必然失败。
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    // 产物仍保持 Java 17 字节码，1.20.1 的运行时（Java 17）可以正常加载
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+
+sourceSets.main {
+    // 加载器无关的核心逻辑，两个平台工程共用同一份源码。
+    // 本仓库每个分支自带工程根下的 common/ 目录，因此用 file('common/...')。
+    java.srcDir file('common/java')
+    resources.srcDir file('common/resources')
+}
+
+repositories {
+    maven {
+        name = 'NeoForged'
+        url = 'https://maven.neoforged.net/releases'
+    }
+}
+
+dependencies {
+    // 1.20.1 的 NeoForge 发布在 net.neoforged:forge 下（Forge 47.1.x 分支）
+    implementation "net.neoforged:forge:${neoforge_version}"
+}
+
+runs {
+    configureEach {
+        modSource sourceSets.main
+        workingDirectory project.file('run')
+        // 开发环境从 build/classes + build/resources 加载，没有 jar manifest，
+        // 所以用 JVM 参数直接告诉 Mixin 去加载哪个配置。
+        jvmArguments '-Dmixin.configs=tickcontrol.mixins.json',
+                     '-DMixinConfigs=tickcontrol.mixins.json'
+    }
+    client {
+        client()
+    }
+    server {
+        server()
+        // NeoGradle 把 --nogui 通过 programArguments 传会被标为 deprecated，
+        // 用 arguments 更合适；同时避免开发环境下 DedicatedServer 走到
+        // 仅客户端的 LanServerPinger 分支（见 README「踩过的坑」）。
+        arguments '--nogui'
+        if (project.hasProperty('selftest')) {
+            jvmArguments '-Dtickcontrol.selftest=true', '-Dtickcontrol.selftest.stop=true'
+        }
+    }
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    // mods.toml 是 common/ 里与 Forge 侧共用的一份，里面引用了 ${forge_version_range}，
+    // 所以这里两个区间都要提供（NeoForge 1.20.1 的依赖 modId 仍是 "forge"）。
+    def props = [
+        mod_id                 : mod_id,
+        mod_name               : mod_name,
+        mod_version            : mod_version,
+        mod_authors            : mod_authors,
+        mod_license            : mod_license,
+        mod_description        : mod_description,
+        minecraft_version      : minecraft_version,
+        minecraft_version_range: minecraft_version_range,
+        neoforge_version       : neoforge_version,
+        neoforge_version_range : neoforge_version_range,
+        forge_version_range    : neoforge_version_range,
+        loader_version_range   : loader_version_range,
+    ]
+    inputs.properties(props)
+    filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
+        expand props
+    }
+}
+
+tasks.named('jar', Jar).configure {
+    manifest {
+        attributes([
+            'Specification-Title'     : mod_id,
+            'Specification-Vendor'    : mod_authors,
+            'Specification-Version'   : '1',
+            'Implementation-Title'    : mod_name,
+            'Implementation-Version'  : mod_version,
+            'Implementation-Vendor'   : mod_authors,
+            // Forge/NeoForge 1.20.1 通过 manifest 的 MixinConfigs 发现 Mixin 配置；
+            // mods.toml 里的 [[mixins]] 段是 1.20.5+ 的写法，1.20.1 上不生效。
+            'MixinConfigs'            : 'tickcontrol.mixins.json',
+        ])
+    }
+}
