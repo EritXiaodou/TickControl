@@ -1,0 +1,153 @@
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
+}
+
+group = mod_group
+version = mod_version
+base { archivesName = "${mod_id}-forge-${minecraft_version}" }
+
+java {
+    toolchain {
+        // 必须用 21：本机 foojay 拉下来的 Adoptium 17 的 zipfs 有缺陷
+        // （FileSystems.newFileSystem(zip, Map.of("create","true")) 之后仍被判定为
+        //  read-only，写入任何条目都抛 ReadOnlyFileSystemException），
+        // 会导致 ForgeGradle 的 accessTransformer 步骤必然失败。
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    // 产物仍保持 Java 17 字节码，1.20.1 的运行时（Java 17）可以正常加载
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+
+sourceSets.main {
+    // 加载器无关的核心逻辑，两个平台工程共用同一份源码。
+    // 本仓库每个分支自带工程根下的 common/ 目录，因此用 file('common/...')。
+    java.srcDir file('common/java')
+    resources.srcDir file('common/resources')
+}
+
+minecraft {
+    mappings channel: mapping_channel, version: mapping_version
+    copyIdeResources = true
+
+    runs {
+        configureEach {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            // 开发环境从 build/classes + build/resources 加载，没有 jar manifest，
+            // 所以用 JVM 参数直接告诉 Mixin 去加载哪个配置。
+            jvmArgs '-Dmixin.configs=tickcontrol.mixins.json', '-DMixinConfigs=tickcontrol.mixins.json'
+            mods {
+                "${mod_id}" {
+                    source sourceSets.main
+                }
+            }
+        }
+        client {
+            property 'forge.enabledGameTestNamespaces', mod_id
+            args '--width', '1920', '--height', '1080'
+        }
+        server {
+            property 'forge.enabledGameTestNamespaces', mod_id
+            args '--nogui'
+            // 无人值守自检：gradle runServer -Pselftest
+            if (project.hasProperty('selftest')) {
+                jvmArgs '-Dtickcontrol.selftest=true', '-Dtickcontrol.selftest.stop=true'
+            }
+            // 主循环注入诊断：gradle runServer -Ptickdebug
+            if (project.hasProperty('tickdebug')) {
+                jvmArgs '-Dtickcontrol.debug=true'
+            }
+            // 便于排查注入问题：gradle runServer -PmixinDebug
+            if (project.hasProperty('mixinDebug')) {
+                property 'mixin.debug', 'true'
+                property 'mixin.debug.verbose', 'true'
+                property 'mixin.debug.export', 'true'
+            }
+        }
+    }
+}
+
+repositories {
+    maven {
+        name = 'MinecraftForge'
+        url = 'https://maven.minecraftforge.net/'
+    }
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${forge_version}"
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    def props = [
+        mod_id                 : mod_id,
+        mod_name               : mod_name,
+        mod_version            : mod_version,
+        mod_authors            : mod_authors,
+        mod_license            : mod_license,
+        mod_description        : mod_description,
+        minecraft_version      : minecraft_version,
+        minecraft_version_range: minecraft_version_range,
+        forge_version          : forge_version,
+        forge_version_range    : forge_version_range,
+        loader_version_range   : loader_version_range,
+    ]
+    inputs.properties(props)
+    filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
+        expand props
+    }
+}
+
+tasks.named('jar', Jar).configure {
+    manifest {
+        attributes([
+            'Specification-Title'     : mod_id,
+            'Specification-Vendor'    : mod_authors,
+            'Specification-Version'   : '1',
+            'Implementation-Title'    : mod_name,
+            'Implementation-Version'  : mod_version,
+            'Implementation-Vendor'   : mod_authors,
+            // Forge 1.20.1 通过 manifest 的 MixinConfigs 发现 Mixin 配置。
+            // mods.toml 里的 [[mixins]] 段是 1.20.5+ 的写法，在 1.20.1 上会被
+            // MixinPlatformAgentMinecraftForge 直接拒绝，配置不会生效。
+            'MixinConfigs'            : 'tickcontrol.mixins.json',
+        ])
+    }
+    finalizedBy 'reobfJar'
+}
+
+// 临时任务：打印 @Shadow 成员在 SRG（生产环境）下的名字，用于补全 refmap。
+tasks.register('srgNames') {
+    doLast {
+        def minecraft = project.extensions.getByName('minecraft')
+        def mappings = minecraft.mappings.mappings
+        def targets = [
+            ['net/minecraft/server/MinecraftServer',
+             ['runServer','tickServer','tickChildren','initServer','waitUntilNextTick',
+              'startMetricsRecordingTick','endMetricsRecordingTick','haveTime','running',
+              'tickTimes','isReady','mayHaveDelayedTasks','delayedTasksMaxNextTickTime',
+              'averageTickTime','profiler','LOGGER']],
+            ['net/minecraft/server/level/ServerLevel', ['tick']],
+        ]
+        targets.each { entry ->
+            def cls = entry[0]
+            def mc = mappings.getClass(cls)
+            if (mc == null) { println "MISSING\t${cls}"; return }
+            entry[1].each { n ->
+                def found = null
+                try { found = mc.fields.get(n)?.name } catch (Throwable ignored) {}
+                if (found == null) { try { found = mc.methods.get(n)?.name } catch (Throwable ignored) {} }
+                println "${cls}\t${n}\t${found ?: '???'}"
+            }
+        }
+    }
+}
