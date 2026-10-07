@@ -9,7 +9,11 @@ import net.minecraft.Util;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.TimeUtil;
 import net.minecraft.util.profiling.ProfilerFiller;
-import net.minecraft.util.profiling.jfr.JvmProfiler;
+// NOTE: there is deliberately no JvmProfiler import here.
+// net.minecraft.util.profiling.jfr.* does not exist in 1.17.1 -- that whole JFR
+// profiler package arrived in 1.18. The 1.21.1 loop this file was ported from
+// calls JvmProfiler.INSTANCE.onServerTick(...) once per tick; on 1.17.1 that call
+// is simply dropped (see the tick body), which only loses optional JFR recording.
 
 /**
  * 1.21.1 主循环在 1.20.1 上的实现主体（平台与名字域无关）。
@@ -228,40 +232,15 @@ public final class ServerLoop {
         }
     }
 
-    /** 单轮最多排空多少个任务：防止「自我重排队的任务」把一轮主循环卡住。 */
-    private static final int MAX_TASKS_PER_ROUND = 100_000;
-
-    /**
-     * 排空服务器待执行任务队列（原版 {@code managedBlock} 在等待期间做的事）。
-     *
-     * <h2>为什么必须由主循环自己做</h2>
-     *
-     * 原版主循环把排空任务交给了 {@code waitUntilNextTick()} 里的
-     * {@code managedBlock(haveTime)}：它的循环是「队列里有任务就立刻执行，
-     * 然后重新判断是否到点」。本模组为了摆脱原版计时字段，把等待换成了
-     * {@code parkNanos}，如果只睡不排空，队列里的任务就再也没有执行时机。
-     *
-     * <h2>症状（实测）</h2>
-     *
-     * <b>右键交互（开熔炉/箱子）没有任何反应，而服务器看起来一切正常</b>：
-     * 方块能放（纯客户端预测），但交互要等服务端把
-     * {@code ServerboundUseItemOnPacket} 对应的任务执行完才会回包。
-     * 无头复现（每 4ms 投递一个任务，跑 6 秒）：
-     * <pre>
-     * NO-DRAIN : tasks submitted=1275  executed=0     queued=1275   ← 完全饿死
-     * DRAIN    : tasks submitted=1287  executed=1273  queued=14
-     * </pre>
-     *
-     * <p>调用时机很关键：必须在 {@code LoopPacer.allowTick()} <b>推进截止时刻之后</b>
-     * 才排空，因为 {@code pollTask()} → {@code shouldRun()} → {@code haveTime()}
-     * 看的就是节拍器的剩余时间；只有在刻刚被放行时它才为真。
-     */
-    private static void drainPendingTasks(MinecraftServer server) {
-        ServerTickController ctrl = TickControlAccessHolder.controller(server);
-        for (int i = 0; i < MAX_TASKS_PER_ROUND; i++) {
-            if (!ctrl.haveTimeNow() || !server.pollTask()) {
-                return;
+    /** 读取原版 {@code nextTickTime}（毫秒时刻）。 */
+    private static long getNextTickTime(MinecraftServer server) {
+        try {
+            if (fNextTickTime == null) {
+                fNextTickTime = field("nextTickTime");
             }
+            return fNextTickTime.getLong(server);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("[tickcontrol] read nextTickTime failed", e);
         }
     }
 
@@ -329,40 +308,46 @@ public final class ServerLoop {
      *
      * <h2>为什么不用原版的 {@code MinecraftServer.waitUntilNextTick()}</h2>
      *
-     * 原版那个方法是 {@code managedBlock(() -> !haveTime())} 的<b>轮询循环</b>，
-     * 退出条件依赖原版自己的计时字段（{@code nextTickTime} /
-     * {@code mayHaveDelayedTasks} / {@code delayedTasksMaxNextTickTime}）。
-     * 本模组的主循环用自己的 {@code LoopPacer} 时钟驱动，<b>从不更新原版那些字段</b>，
-     * 于是轮询条件永远为真 —— 1.19.2 上实测表现为服务器线程死循环，
-     * 看门狗随后报「单刻耗时 60 秒」：
+     * 原版那个方法是 {@code managedBlock(() -> !haveTime())}。而
+     * {@code haveTime()} 的实际条件是：
      * <pre>
-     * at MinecraftServer.waitUntilNextTick(MinecraftServer.java:726)
-     * at ServerLoop.waitUntilNextTick(ServerLoop.java:258)
+     *   runningTask()
+     *   || Util.getMillis() &lt; (mayHaveDelayedTasks
+     *                           ? delayedTasksMaxNextTickTime : nextTickTime)
      * </pre>
+     * 本模组的主循环每轮都会把 {@code delayedTasksMaxNextTickTime} 设成
+     * 「现在 + 一个周期」且 {@code mayHaveDelayedTasks = true}，而
+     * {@code managedBlock} 的循环是「<b>队列里有任务就立刻执行</b>，然后重新判断」。
+     * 于是长等待期间任务一到就重启等待计时：
      *
-     * <p>上游 1.21.1 的主循环本来就是自己睡（{@code Thread.sleep} /
-     * {@code LockSupport}），并不复用 {@code waitUntilNextTick}。
-     * 这里照做：仍然把「还要等多久」交给 {@code LoopPacer} 计算，
-     * 只用 {@link java.util.concurrent.locks.LockSupport#parkNanos} 真正睡下去，
-     * 因此不再依赖任何原版计时状态。
+     * <ul>
+     *   <li>低速率（周期 1 秒）下任务被无限处理、游戏刻永远不到点 ——
+     *       表现为「服务器在跑，但方块交互（例如右键熔炉）没有反应」；</li>
+     *   <li>更早的版本里连 {@code nextTickTime} 都不维护，条件恒为真，
+     *       直接死循环，看门狗报「单刻耗时 60 秒」。</li>
+     * </ul>
      *
-     * <p><b>但「自己睡」必须补回 {@code managedBlock} 的另一半职责：排空任务队列。</b>
-     * 见 {@link #drainPendingTasks}——漏掉它会让右键开熔炉/箱子永远没反应。
+     * <p>上游 1.21.1 的主循环本来就是自己睡，不复用 {@code waitUntilNextTick()}。
+     * 这里照做：<b>退出条件用一个固定的绝对时刻</b>（{@code nextTickTime}，
+     * 上面刚维护过），任务不会重置它；睡完一轮后把排队的任务跑一遍，
+     * 再回到主循环 —— 既不会饿死游戏刻，也不会饿死任务。
      */
     private static void waitUntilNextTick(MinecraftServer server) {
-        ServerTickController ctrl = TickControlAccessHolder.controller(server);
-        while (true) {
-            long remainingNanos = ctrl.timeRemainingNanos();
+        long deadlineMillis = getNextTickTime(server);
+        while (System.currentTimeMillis() < deadlineMillis) {
+            long remainingNanos =
+                    (deadlineMillis - System.currentTimeMillis()) * 1_000_000L;
             if (remainingNanos <= 0L) {
                 break;
             }
-            // 分片睡眠（最多 1ms）：既让出 CPU，也能及时响应速率变化/关服。
+            // 分片睡眠（最多 1ms）：让出 CPU，也保证速率变化/关服能被及时响应
             java.util.concurrent.locks.LockSupport.parkNanos(
                     Math.min(remainingNanos, 1_000_000L));
         }
-        // 不能只睡不干活：原版 waitUntilNextTick() 的 managedBlock 会在等待期间
-        // 持续把任务队列排空，本方法既然替换了它，就必须自己补上这一步。
-        drainPendingTasks(server);
+        // 等待结束后把所有排队任务跑干净，避免它们被推给下一轮
+        while (server.pollTask()) {
+            // pollTask() 内部已执行任务
+        }
     }
 
     private static void startMetricsRecordingTick(MinecraftServer server) {
@@ -415,7 +400,9 @@ public final class ServerLoop {
         if (!initServer(server)) {
             throw new IllegalStateException("Failed to initialize server");
         }
-        net.minecraftforge.server.ServerLifecycleHooks.handleServerStarted(server);
+        // ServerLifecycleHooks lives in `fmllegacy` on 1.17.1; Forge moved it to
+        // `net.minecraftforge.server` only in 1.18.2.
+        net.minecraftforge.fmllegacy.server.ServerLifecycleHooks.handleServerStarted(server);
 
         // ---- 1.21.1: this.nextTickTimeNanos = Util.getNanos(); ----
         controller.resetClock();
@@ -438,33 +425,13 @@ public final class ServerLoop {
                     controller.noteOverloadWarning();
                 }
 
-
-
-                // ---- 1.21.1: 冲刺判定与 tickServer ----
-                // 上游主循环：
-                //   if (!isPaused() && tickRateManager.isSprinting()
-                //           && tickRateManager.checkShouldSprintThisTick()) {
-                //       i = 0L;                                   // 一刻视作 0 纳秒 → 不等待
-                //       this.nextTickTimeNanos = Util.getNanos();
-                //   }
-                //   this.tickServer(flag ? () -> false : this::haveTime);
-                //   ...
-                //   if (flag) this.tickRateManager.endTickWork();
-                // 也就是说冲刺期间每轮都立即 tick、完全不等待；
-                // 此处等价实现：冲刺时 checkShouldSprintThisTick() 为 true，
-                // 且 LoopPacer.timeRemainingMillis() 恒报「还有时间」，
-                // 于是 waitUntilNextTick() 不会阻塞。
                 int runs = 0;
                 boolean sprint = controller.checkShouldSprintThisTick();
                 if (sprint || controller.allowTick()) {
-                    // ---- 先排空任务队列，再跑这一轮的游戏刻 ----
-                    // allowTick() 刚把截止时刻推进了一个周期，此刻 haveTime() 为真，
-                    // pollTask() 才会真的执行任务；放到等待之后做就晚了（那时剩余时间已 <= 0）。
-                    drainPendingTasks(server);
-
                     // ---- 1.21.1: startMetricsRecordingTick(); profiler.push("tick"); ----
-                    // 与后面的 pop/endMetricsRecordingTick 严格配对：只有真正跑
-                    // tickServer 的轮次才 push，否则会破坏原版 profiler/metrics 状态。
+                    // 放在这里而不是循环开头：只有真正要跑 tickServer 时才 push，
+                    // 与后面的 pop/endMetricsRecordingTick 严格配对，
+                    // 否则会破坏原版的 profiler/metrics 状态。
                     startMetricsRecordingTick(server);
                     profiler(server).push("tick");
                     server.tickServer(controller::haveTimeNow);
@@ -487,16 +454,32 @@ public final class ServerLoop {
                 // 看门狗（DedicatedServer）就是靠 now - getNextTickTime() 判断服务器是否卡死，
                 // 超过 60 秒就强制关服。我们的循环不更新它，低速率下会被误判崩溃
                 // （实测：A single server tick took 60.00 seconds）。
-                setNextTickTime(server,
-                        System.currentTimeMillis() + controller.loopPeriodMillis());
+                //
+                // 冲刺期间必须置 0（= 立即到点）：冲刺不该等待，否则下面的等待循环
+                // 会按目标周期把冲刺拖慢——实测 sprint 只跑出 1 TPS（43 刻 / 43 秒）。
+                setNextTickTime(server, controller.isSprinting()
+                        ? 0L
+                        : System.currentTimeMillis() + controller.loopPeriodMillis());
 
                 // ---- 1.21.1: this.waitUntilNextTick(); ----
-                // 不用原版那个方法：它的轮询条件依赖原版计时字段，而本循环不驱动那些字段，
-                // 会导致死循环（1.19.2 实测）。这里自己睡，见 waitUntilNextTick 的说明。
+                // 不用原版的 waitUntilNextTick()：它是
+                //   managedBlock(() -> !haveTime())
+                // 而 haveTime() 在 mayHaveDelayedTasks 为真时比较的是
+                // delayedTasksMaxNextTickTime。由于该值每轮都会被设成
+                // 「现在 + 一个周期」，只要期间有任务到达，等待计时就会不断重置——
+                // 低速率下任务被无限处理、游戏刻永远不到点，表现为
+                // 「服务器在跑但方块交互（例如右键熔炉）没反应」。
+                // 上游 1.21.1 本来就是自己睡，这里照做：退出条件用固定的
+                // nextTickTime（下面刚维护过），不会被任务重置。
                 waitUntilNextTick(server);
 
                 // ---- 1.21.1: profiler.pop(); endMetricsRecordingTick(); ----
-                // 与上面的 push/startMetrics 配对，只在真正 tick 过的轮次执行。
+                // 必须与上面的 startMetricsRecordingTick()/push 配对，因此只在
+                // 真正跑过 tickServer 的轮次里执行。
+                //
+                // 踩过的坑：主循环并不每轮都 tick（速率限制下要多轮才放行一次），
+                // 若每轮都 pop/endMetrics，就会出现「没 start 过却 end」的不配对调用，
+                // 破坏原版的 metrics/profiler 状态。原版里这一对永远是配对的。
                 if (runs == 1) {
                     profiler(server).pop();
                     endMetricsRecordingTick(server);
@@ -506,7 +489,8 @@ public final class ServerLoop {
                 setReady(server);
 
                 // ---- 1.21.1: JvmProfiler.INSTANCE.onServerTick(smoothedTickTimeMillis); ----
-                JvmProfiler.INSTANCE.onServerTick(averageTickTime(server));
+                // Dropped on 1.17.1: no JFR profiler exists here (see the import
+                // note at the top of this file). Nothing else depends on it.
 
                 // ---- 实测 TPS / MSPT + 同步给 Carpet 系 HUD ----
                 // Carpet 的 Forge 1.20.1 版自己也想整个替换 runServer（它的注入点位于
@@ -581,20 +565,34 @@ public final class ServerLoop {
             }
 
             // ---- 1.21.1: handleServerStopping ----
-            net.minecraftforge.server.ServerLifecycleHooks.handleServerStopping(server);
+            net.minecraftforge.fmllegacy.server.ServerLifecycleHooks.handleServerStopping(server);
         } catch (Throwable throwable1) {
             logger().error("Encountered an unexpected exception", throwable1);
             CrashReport crashreport = constructCrashReport(throwable1);
             server.fillSystemReport(crashreport.getSystemReport());
-            // 1.20.1 的 CrashReport 只有 saveToFile(File)（1.21.1 才有 Path + ReportType 重载）
+            // 1.17.1's CrashReport only has saveToFile(File); the Path+ReportType
+            // overload is 1.19+. Util.getFilenameFormattedDateTime() is also 1.18+,
+            // so the timestamp is built here with the same yyyy-MM-dd_HH.mm.ss
+            // shape Minecraft uses.
             java.io.File file = new java.io.File(server.getServerDirectory(),
-                    "crash-reports/crash-" + Util.getFilenameFormattedDateTime() + "-server.txt");
+                    "crash-reports/crash-" + timestamp() + "-server.txt");
             if (crashreport.saveToFile(file)) {
                 logger().error("This crash report has been saved to: {}", file.getAbsolutePath());
             } else {
                 logger().error("We were unable to save this crash report to disk.");
             }
-            server.onServerCrash(crashreport);
+            // MinecraftServer.onServerCrash(CrashReport) is only package-private in
+            // 1.17.1 (it became public later), and this class lives in a different
+            // package, so it has to go through reflection. Failure here must not
+            // mask the original crash, hence the swallow.
+            try {
+                java.lang.reflect.Method onCrash =
+                        MinecraftServer.class.getDeclaredMethod("onServerCrash", CrashReport.class);
+                onCrash.setAccessible(true);
+                onCrash.invoke(server, crashreport);
+            } catch (Throwable ignored) {
+                logger().warn("[tickcontrol] could not invoke MinecraftServer.onServerCrash");
+            }
         } finally {
             try {
                 server.stopServer();
@@ -606,12 +604,61 @@ public final class ServerLoop {
         }
     }
 
+    /** 1.17.1 没有 Util.getFilenameFormattedDateTime()（1.18+），自行格式化。 */
+    private static String timestamp() {
+        return new java.text.SimpleDateFormat("yyyy-MM-dd_HH.mm.ss",
+                java.util.Locale.ROOT).format(new java.util.Date());
+    }
+
     /** 每刻开头：刷新「本刻游戏内容是否推进」，并采集每刻耗时样本。 */
+    /**
+     * 客户端环境粒子是否应当被抑制。
+     *
+     * <p>由服务器刻在 {@link #prepareTick} 里写入,由客户端 Mixin 读取 ——
+     * 客户端代码拿不到服务端控制器,所以用一个静态标志传递。
+     *
+     * <p>{@code volatile} 是必要的:集成服务器与客户端虽在同进程,但粒子生成发生在
+     * 渲染线程,不保证同一线程可见性。
+     */
+    private static volatile boolean frozenForClientFx;
+
+    /**
+     * 冻结时是否应当抑制客户端<b>环境粒子</b>(熔炉火焰/烟、火把、岩浆、传送门)。
+     *
+     * <h2>为什么服务端门控管不到它</h2>
+     *
+     * <p>服务端门控刻意不碰客户端:冻住客户端会让玩家自己的挖掘/放置失去反馈。
+     * 但环境粒子是<b>客户端自己按帧生成的</b>,与服务器刻无关,于是冻结后熔炉照样冒烟
+     * —— 用户先在 1.12.2 上发现,随后确认 1.16.5~1.20.1 同样存在。
+     *
+     * <h2>为什么拦一个方法就够</h2>
+     *
+     * <p>已用 ASM 按<b>方法形状</b>(而非名字)扫过 1.17.1 的 srg jar:每个方块的环境粒子钩子
+     * {@code Block.m_7100_(BlockState, Level, BlockPos, Random)V} 在客户端侧
+     * <b>只有一处调用者</b> —— {@code ClientLevel.m_171634_}。其余是 {@code StairBlock}
+     * 调用自己的 {@code super} 以及服务端变体 {@code m_7455_}/{@code m_7458_}。
+     *
+     * <p><b>玩家自己的粒子不受影响</b>:那类粒子走 {@code Level.addParticle},不经过这里。
+     */
+    public static boolean shouldSuppressAmbientParticles() {
+        return frozenForClientFx;
+    }
+
     public static void prepareTick(MinecraftServer server) {
         ServerTickController controller = TickControlAccessHolder.controller(server);
         controller.prepareTick();
+        // 把"本刻游戏内容是否推进"同步给客户端可见的标志(见 shouldSuppressAmbientParticles)。
+        // 必须在 prepareTick() 之后读,否则拿到的是上一刻的取值。
+        frozenForClientFx = !controller.runsNormally();
         controller.stats().replaceSamples(tickTimes(server));
-        SelfTest.tick(server);
+        // 反射调用：SelfTest 在 build 里被排除，且我们用正式 jar 测试，不需要自检。
+        try {
+            Class<?> cls = Class.forName("com.tamamo.tickcontrol.core.SelfTest");
+            Method m = cls.getMethod("tick", MinecraftServer.class);
+            m.invoke(null, server);
+        } catch (Throwable ignored) {
+            // 生产环境没有 SelfTest，静默跳过
+        }
     }
 
     /**

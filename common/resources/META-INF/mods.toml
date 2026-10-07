@@ -22,14 +22,16 @@ description='''${mod_description}'''
     versionRange="${minecraft_version_range}"
     ordering="NONE"
     side="BOTH"
-# Register the mixin config through Forge's own mechanism.
+# NOTE (1.17.1): there is deliberately NO [[mixins]] block here.
 #
-# Previously the config was registered only via the manifest attribute
-# MixinConfigs. In production the config WAS loaded (Mixin logged
-# "Selecting config tickcontrol.mixins.json"), but its refmap was never
-# applied: @Inject targets and @Shadow members were looked up by their
-# development (MCP) names and were therefore not found in the SRG-named
-# game jar. Declaring it here is the standard Forge way and goes through
-# the mod-file machinery that also wires up the refmap.
-[[mixins]]
-config="tickcontrol.mixins.json"
+# The `[[mixins]]` table is a 1.20.5+ feature. The official 1.17.1 MDK
+# mods.toml contains none, and on 1.17.1 the only supported discovery route
+# is the JAR MANIFEST attribute `MixinConfigs`, which Forge 1.17.1's
+# MixinPlatformAgentMinecraftForge reads via MixinPlatformAgentDefault.
+# That attribute is already set in META-INF/MANIFEST.MF and in the jar task
+# of forge-1.17.1/build.gradle; the Gradle dev runs additionally pass
+# -Dmixin.configs / -DMixinConfigs because dev loads build/resources, which
+# has no manifest at all.
+#
+# This mirrors the 1.20.1 project, where the same block is a no-op that
+# MixinPlatformAgentMinecraftForge silently rejects.

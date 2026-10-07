@@ -8,30 +8,27 @@ group = mod_group
 version = mod_version
 base { archivesName = "${mod_id}-forge-${minecraft_version}" }
 
-// 1.17.1's bytecode target is Java 16, NOT 17.
-//
-// Forge 1.17.1-37.1.1 ships Mixin 0.8.4 (not 0.8.5) on top of ASM 9.1, and
-// ASM 9.1 cannot read class-file version 61 (Java 17) -- it stops at 60. The
-// official 1.17.x MDK therefore pins `JavaLanguageVersion.of(16)` and the mixin
-// config says JAVA_16, not JAVA_17. Do NOT raise either of those to 17.
-//
-// JDK 16 is now installed at C:\Program Files\Java\jdk-16.0.2-7, which resolves
-// what the handoff called a hard blocker: 1.17.1 previously had no JDK 16, so it
-// was forced onto 21 (fine for `--release 16`, but the toolchain still had to be
-// 21) or onto 17 (which breaks ForgeGradle's Vignette/Atlas rename step with a
-// zipfs ReadOnlyFileSystemException). Using the version the MDK actually asks
-// for removes both compromises.
+// NOTE: ForgeGradle 6 on Gradle 8.x must NOT rely on `java { toolchain { ... } }`.
+// When the toolchain spec is only realised while ForgeGradle lazily resolves its
+// Minecraft artifacts, Gradle 8 has already closed the project scope and throws
+//     IllegalStateException: ProjectScopeServices has been closed
+// inside MinecraftUserRepo.findBinpatched(). The failure then surfaces as
+//     MinecraftUserRepo: Failed to get Minecraft Vanilla Base
+//     java.lang.IllegalArgumentException: 不支持发行版本 17
+// which reads like a broken build setup rather than a toolchain lifecycle bug.
+// The 1.18.2/1.19.2/1.20.1 projects still carry the block and only survive
+// because Gradle 8.4 happens to have a live-enough project scope; pinning the JDK
+// through JAVA_HOME and `options.release` is the robust form.
 java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(16)
-    }
-    sourceCompatibility = JavaVersion.VERSION_16
-    targetCompatibility = JavaVersion.VERSION_16
+    // 1.17.1 runs on Java 16+; Java 17 bytecode is the safe target and matches
+    // what the other projects in this repository emit.
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.release = 16
+    options.release = 17
 }
 
 sourceSets.main {
@@ -43,6 +40,7 @@ sourceSets.main {
 
 minecraft {
     mappings channel: mapping_channel, version: mapping_version
+    copyIdeResources = true
 
     runs {
         configureEach {
@@ -89,30 +87,6 @@ repositories {
         url = 'https://maven.minecraftforge.net/'
     }
 }
-
-// ---------------------------------------------------------------------------
-// KNOWN BLOCKER -- read docs/verified-facts.md section 2.6 before touching this.
-//
-// This project does not build yet. ForgeGradle fails to produce
-//   1.17.1-37.1.1_mapped_official_1.17.1
-// and the error surfaces as
-//   Could not find net.minecraftforge:forge:1.17.1-37.1.1_mapped_official_1.17.1
-// which is misleading. The real chain (captured with --info) is
-//   MCPRepo.findSrg -> MCPRuntime.execute -> ExecuteFunction.execute
-//     -> DefaultJavaToolchainService.launcherFor
-//     -> ObjectInstantiationException: DefaultToolchainSpec
-//     -> Caused by: IllegalStateException: ProjectScopeServices has been closed
-// i.e. ForgeGradle calls launcherFor from inside an artifact provider, after
-// Gradle has closed the project-scoped service registry.
-//
-// A previous attempt resolved configurations.compileClasspath eagerly from
-// gradle.taskGraph.whenReady. That does NOT work and the code was removed:
-// whenReady fires inside DefaultBuildLifecycleController.finalizeWorkGraph,
-// which is already past the point where the scope closes.
-//
-// Next avenue to try is Gradle 8.1.x (ForgeGradle 6's stated minimum, and the
-// only version line not yet tested).
-// ---------------------------------------------------------------------------
 
 dependencies {
     minecraft "net.minecraftforge:forge:${forge_version}"

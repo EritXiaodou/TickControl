@@ -7,7 +7,7 @@ package com.tamamo.tickcontrol.core;
  */
 public final class VersionAdapterHolder {
 
-    private static final VersionAdapter INSTANCE = new CallableVersionAdapter();
+    private static final VersionAdapter INSTANCE = new LegacyVersionAdapter();
 
     private VersionAdapterHolder() {
     }

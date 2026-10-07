@@ -362,7 +362,9 @@ public final class SelfTest {
     private static void run(MinecraftServer server, String command) {
         try {
             CommandSourceStack source = server.createCommandSourceStack();
-            server.getCommands().performPrefixedCommand(source, command);
+            // 1.17.1 只有 performCommand(source, command)；
+            // performPrefixedCommand 是 1.19+ 的名字（自动去掉前导 '/'）。
+            server.getCommands().performCommand(source, command);
         } catch (Throwable t) {
             fail("command threw: /" + command + " -> " + t);
         }
