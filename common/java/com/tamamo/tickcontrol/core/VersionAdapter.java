@@ -1,11 +1,13 @@
+
 package com.tamamo.tickcontrol.core;
 
 import java.util.function.Supplier;
 
 import com.mojang.brigadier.arguments.ArgumentType;
 
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.network.chat.Component;
+import net.minecraft.command.CommandSource;
+import net.minecraft.util.text.ITextComponent;
+import net.minecraft.util.text.StringTextComponent;
 
 /**
  * 跨 Minecraft 版本的 API 适配层。
@@ -20,13 +22,13 @@ import net.minecraft.network.chat.Component;
  *   <caption>版本差异</caption>
  *   <tr><th>API</th><th>1.18.2</th><th>1.19.2</th><th>1.20.1</th></tr>
  *   <tr><td>sendSuccess</td>
- *       <td>Component</td><td>Component</td><td>Supplier&lt;Component&gt;</td></tr>
+ *       <td>ITextComponent</td><td>ITextComponent</td><td>Supplier&lt;ITextComponent&gt;</td></tr>
  *   <tr><td>TimeArgument</td>
  *       <td>time()</td><td>time()</td><td>time() + time(int)</td></tr>
  *   <tr><td>文本组件</td>
- *       <td>new TranslatableComponent(...)</td>
- *       <td>Component.translatable(...)</td>
- *       <td>Component.translatable(...)</td></tr>
+ *       <td>new TranslationStringTextComponent(...)</td>
+ *       <td>ITextComponent.translatable(...)</td>
+ *       <td>ITextComponent.translatable(...)</td></tr>
  * </table>
  *
  * <p>因此每个版本各有一份源码树（common-&lt;version&gt;/java），
@@ -42,10 +44,10 @@ public interface VersionAdapter {
      * @param message   消息内容（延迟构造；1.19.2 及以下会立即求值）
      * @param broadcast 是否广播给其他管理员
      */
-    void sendSuccess(CommandSourceStack source, Supplier<Component> message, boolean broadcast);
+    void sendSuccess(CommandSource source, Supplier<ITextComponent> message, boolean broadcast);
 
     /** 向命令来源发送失败消息。 */
-    void sendFailure(CommandSourceStack source, Component message);
+    void sendFailure(CommandSource source, ITextComponent message);
 
     /**
      * step / sprint 的 time 参数类型。
@@ -57,14 +59,14 @@ public interface VersionAdapter {
     /**
      * 构造可翻译文本组件。
      *
-     * <p>1.18.2 没有 {@code Component.translatable} 静态工厂（1.19 才加入），
-     * 只能用 {@code new TranslatableComponent(key, args)}。
+     * <p>1.18.2 没有 {@code ITextComponent.translatable} 静态工厂（1.19 才加入），
+     * 只能用 {@code new TranslationStringTextComponent(key, args)}。
      *
      * @param key  翻译键
      * @param args 格式化参数
      */
-    Component translatable(String key, Object... args);
+    ITextComponent translatable(String key, Object... args);
 
-    /** 构造字面文本组件（1.18.2 用 {@code new TextComponent(...)}）。 */
-    Component literal(String text);
+    /** 构造字面文本组件（1.18.2 用 {@code new StringTextComponent(...)}）。 */
+    ITextComponent literal(String text);
 }

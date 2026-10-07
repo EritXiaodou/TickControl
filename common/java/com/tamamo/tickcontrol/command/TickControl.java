@@ -1,3 +1,4 @@
+
 package com.tamamo.tickcontrol.command;
 
 import java.util.Map;
@@ -5,7 +6,7 @@ import java.util.WeakHashMap;
 
 import com.tamamo.tickcontrol.core.TickControlAccess;
 
-import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.command.CommandSource;
 import net.minecraft.server.MinecraftServer;
 
 /**
@@ -47,7 +48,7 @@ public final class TickControl {
     }
 
     /** 从命令来源解析控制器；解析不到时返回 {@code null}，调用方按「执行失败」处理。 */
-    public static TickControlAccess get(CommandSourceStack source) {
+    public static TickControlAccess get(CommandSource source) {
         if (source == null) {
             return null;
         }

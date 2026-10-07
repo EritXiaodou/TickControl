@@ -1,76 +1,114 @@
 plugins {
-    id 'java'
-    id 'net.neoforged.gradle.userdev' version '7.0.192'
+    id 'eclipse'
+    id 'idea'
+    // ForgeGradle 5 is the correct line for 1.16.5. FG6 only handles the 1.17+
+    // userdev layout and stops before producing a mapped artifact for 1.16.5.
+    id 'net.minecraftforge.gradle' version '5.1.+'
 }
 
 group = mod_group
 version = mod_version
-base { archivesName = "${mod_id}-neoforge-${minecraft_version}" }
+base { archivesName = "${mod_id}-forge-${minecraft_version}" }
 
+// 1.16.5 runs on Java 8, so the produced bytecode MUST be Java 8 (class-file 52).
+//
+// This is not cosmetic. ForgeGradle 5 runs reobfuscation through SpecialSource
+// 1.8.5, whose bundled ASM rejects anything newer than Java 8:
+//     java.lang.IllegalArgumentException: Unsupported class file major version 65
+// Without an explicit release flag javac emits the toolchain's own version, so
+// compileJava succeeds and reobfJar then dies -- a failure that is easy to
+// misread as a ForgeGradle/Gradle incompatibility.
+//
+// The build must run on a JDK that supports `--release 8`. JDK 17 is the safe
+// choice: Gradle 7.6.4 cannot even compile a build script on JDK 21
+// ("Unsupported class file major version 65" from Groovy), while JDK 17 both
+// runs Gradle 7.6.4 and understands --release 8.
 java {
-    toolchain {
-        // 必须用 21：本机 foojay 拉下来的 Adoptium 17 的 zipfs 有缺陷
-        // （FileSystems.newFileSystem(zip, Map.of("create","true")) 之后仍被判定为
-        //  read-only，写入任何条目都抛 ReadOnlyFileSystemException），
-        // 会导致 NeoForm 的 accessTransformer 步骤（jst）必然失败。
-        languageVersion = JavaLanguageVersion.of(21)
-    }
-    // 产物仍保持 Java 17 字节码，1.20.1 的运行时（Java 17）可以正常加载
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.release = 17
+    // `release` rather than only source/target: it uses the ct.sym table, so the
+    // 1.16.5 runtime cannot be handed a class compiled against a newer JDK.
+    options.release = 8
 }
 
 sourceSets.main {
-    // 加载器无关的核心逻辑，两个平台工程共用同一份源码。
-    // 本仓库每个分支自带工程根下的 common/ 目录，因此用 file('common/...')。
+    // Loader-agnostic core logic, shared with the other platform projects.
+    // file('common/...') and not rootProject.file(...): this is a
+    // standalone build whose rootProject is the forge-1.16.5 directory.
     java.srcDir file('common/java')
     resources.srcDir file('common/resources')
+    // SelfTest is the optional harness. Verification runs against production
+    // jars, so it is not ported and must be excluded or the module will not
+    // compile (it uses APIs that differ per version).
+    java.exclude 'com/tamamo/tickcontrol/core/SelfTest.java'
 }
 
-repositories {
-    maven {
-        name = 'NeoForged'
-        url = 'https://maven.neoforged.net/releases'
-    }
-}
+minecraft {
+    // ForgeGradle 5 has no copyIdeResources (that is FG6+).
+    mappings channel: mapping_channel, version: mapping_version
 
-dependencies {
-    // 1.20.1 的 NeoForge 发布在 net.neoforged:forge 下（Forge 47.1.x 分支）
-    implementation "net.neoforged:forge:${neoforge_version}"
-}
-
-runs {
-    configureEach {
-        modSource sourceSets.main
-        workingDirectory project.file('run')
-        // 开发环境从 build/classes + build/resources 加载，没有 jar manifest，
-        // 所以用 JVM 参数直接告诉 Mixin 去加载哪个配置。
-        jvmArguments '-Dmixin.configs=tickcontrol.mixins.json',
-                     '-DMixinConfigs=tickcontrol.mixins.json'
-    }
-    client {
-        client()
-    }
-    server {
-        server()
-        // NeoGradle 把 --nogui 通过 programArguments 传会被标为 deprecated，
-        // 用 arguments 更合适；同时避免开发环境下 DedicatedServer 走到
-        // 仅客户端的 LanServerPinger 分支（见 README「踩过的坑」）。
-        arguments '--nogui'
-        if (project.hasProperty('selftest')) {
-            jvmArguments '-Dtickcontrol.selftest=true', '-Dtickcontrol.selftest.stop=true'
+    runs {
+        client {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            // Dev runs load build/classes + build/resources, which has no jar
+            // manifest, so point Mixin at the config explicitly. Convenience
+            // only -- the route the user actually tests is the jar manifest set
+            // by the jar task below.
+            jvmArgs '-Dmixin.configs=tickcontrol.mixins.json', '-DMixinConfigs=tickcontrol.mixins.json'
+            mods {
+                "${mod_id}" {
+                    source sourceSets.main
+                }
+            }
+        }
+        server {
+            workingDirectory project.file('run')
+            property 'forge.logging.console.level', 'debug'
+            jvmArgs '-Dmixin.configs=tickcontrol.mixins.json', '-DMixinConfigs=tickcontrol.mixins.json'
+            args '--nogui'
+            mods {
+                "${mod_id}" {
+                    source sourceSets.main
+                }
+            }
         }
     }
 }
 
+repositories {
+    maven {
+        name = 'MinecraftForge'
+        url = 'https://maven.minecraftforge.net/'
+    }
+}
+
+// Mixin discovery on 1.16.5 goes exclusively through the CONTAINER MANIFEST:
+// MixinPlatformAgentMinecraftForge does
+//     accepts(container) -> container.findManifestAttribute("MixinConfigs")
+// A directory on the classpath has no manifest, so a dev run would load the mod
+// but never apply the mixins. Writing a manifest into the processed resources
+// keeps dev runs working; the jar's own manifest is set by the jar task.
 tasks.named('processResources', ProcessResources).configure {
-    // mods.toml 是 common/ 里与 Forge 侧共用的一份，里面引用了 ${forge_version_range}，
-    // 所以这里两个区间都要提供（NeoForge 1.20.1 的依赖 modId 仍是 "forge"）。
+    doLast {
+        def mf = file("${destinationDir}/META-INF/MANIFEST.MF")
+        mf.parentFile.mkdirs()
+        mf.text = "Manifest-Version: 1.0\r\nMixinConfigs: ${mod_id}.mixins.json\r\n\r\n"
+    }
+}
+
+dependencies {
+    // Declared first: ForgeGradle 5 resolves the MCP/userdev artifacts through
+    // this configuration, and later configurations may depend on it.
+    minecraft "net.minecraftforge:forge:${forge_version}"
+}
+
+tasks.named('processResources', ProcessResources).configure {
     def props = [
         mod_id                 : mod_id,
         mod_name               : mod_name,
@@ -80,9 +118,8 @@ tasks.named('processResources', ProcessResources).configure {
         mod_description        : mod_description,
         minecraft_version      : minecraft_version,
         minecraft_version_range: minecraft_version_range,
-        neoforge_version       : neoforge_version,
-        neoforge_version_range : neoforge_version_range,
-        forge_version_range    : neoforge_version_range,
+        forge_version          : forge_version,
+        forge_version_range    : forge_version_range,
         loader_version_range   : loader_version_range,
     ]
     inputs.properties(props)
@@ -100,9 +137,11 @@ tasks.named('jar', Jar).configure {
             'Implementation-Title'    : mod_name,
             'Implementation-Version'  : mod_version,
             'Implementation-Vendor'   : mod_authors,
-            // Forge/NeoForge 1.20.1 通过 manifest 的 MixinConfigs 发现 Mixin 配置；
-            // mods.toml 里的 [[mixins]] 段是 1.20.5+ 的写法，1.20.1 上不生效。
+            // This is the ONLY route by which 1.16.5 discovers the Mixin config.
+            // mods.toml's [[mixins]] block is 1.20.5+ syntax and is silently
+            // rejected by MixinPlatformAgentMinecraftForge on 1.16.5.
             'MixinConfigs'            : 'tickcontrol.mixins.json',
         ])
     }
+    finalizedBy 'reobfJar'
 }

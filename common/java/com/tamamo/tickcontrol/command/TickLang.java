@@ -1,3 +1,4 @@
+
 package com.tamamo.tickcontrol.command;
 
 /**

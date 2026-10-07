@@ -9,7 +9,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import com.tamamo.tickcontrol.core.ServerLoop;
 
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.server.ServerWorld;
 
 /**
  * 开发环境（MCP 官方名）变体：{@code remap = false}，注解值直接用官方名。
@@ -24,28 +24,28 @@ import net.minecraft.server.level.ServerLevel;
  * 配置插件选择」，把环境判断放进自己的 Java 代码里，彻底绕开 refmap。
  */
 @Mixin(MinecraftServer.class)
-public abstract class MinecraftServerMixinDev {
+public abstract class MinecraftServerMixin {
 
-    @Inject(method = "runServer", at = @At("HEAD"), cancellable = true, remap = false)
+    @Inject(method = "func_240802_v_", at = @At("HEAD"), cancellable = true, remap = false)
     private void tickcontrol$runServer(CallbackInfo ci) throws java.io.IOException {
         ServerLoop.runServer((MinecraftServer) (Object) this);
         ci.cancel();
     }
 
-    @Inject(method = "tickServer", at = @At("HEAD"), remap = false)
+    @Inject(method = "func_71217_p", at = @At("HEAD"), remap = false)
     private void tickcontrol$prepareTick(java.util.function.BooleanSupplier haveTime, CallbackInfo ci) {
         ServerLoop.prepareTick((MinecraftServer) (Object) this);
     }
 
     @Redirect(
-            method = "tickChildren",
+            method = "func_71190_q",
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/minecraft/server/level/ServerLevel;tick(Ljava/util/function/BooleanSupplier;)V"
+                    target = "Lnet/minecraft/world/server/ServerWorld;func_72835_b(Ljava/util/function/BooleanSupplier;)V"
             ),
             remap = false
     )
-    private void tickcontrol$maybeTickLevel(ServerLevel level, java.util.function.BooleanSupplier haveTime) {
+    private void tickcontrol$maybeTickLevel(ServerWorld level, java.util.function.BooleanSupplier haveTime) {
         ServerLoop.tickLevel(level, haveTime);
     }
 }

@@ -1,12 +1,13 @@
 {
   "required": true,
-  "minVersion": "0.8.5",
+  "minVersion": "0.8.4",
   "package": "com.tamamo.tickcontrol.mixin",
-  "compatibilityLevel": "JAVA_17",
-  "plugin": "com.tamamo.tickcontrol.mixin.TickControlMixinPlugin",
+  "compatibilityLevel": "JAVA_8",
   "mixins": [
-    "MinecraftServerMixinDev",
-    "MinecraftServerMixinSrg"
+    "MinecraftServerMixin"
+  ],
+  "client": [
+    "ClientWorldMixin"
   ],
   "injectors": {
     "defaultRequire": 1

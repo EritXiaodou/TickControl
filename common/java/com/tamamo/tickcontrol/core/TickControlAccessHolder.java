@@ -1,3 +1,4 @@
+
 package com.tamamo.tickcontrol.core;
 
 import com.tamamo.tickcontrol.command.TickControl;
@@ -26,8 +27,10 @@ public final class TickControlAccessHolder {
 
     public static ServerTickController controller(MinecraftServer server) {
         TickControlAccess existing = TickControl.forServer(server);
-        if (existing instanceof ServerTickController controller) {
-            return controller;
+        // Classic instanceof + cast, not Java 16 pattern matching: 1.16.5 is a
+        // Java 8 target (see ServerLoop's identical note).
+        if (existing instanceof ServerTickController) {
+            return (ServerTickController) existing;
         }
         ServerTickController created = new ServerTickController();
         TickControl.register(server, created);

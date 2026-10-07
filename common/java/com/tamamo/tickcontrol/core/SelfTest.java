@@ -1,10 +1,11 @@
+
 package com.tamamo.tickcontrol.core;
 
 import java.util.Locale;
 
 import com.tamamo.tickcontrol.command.TickControl;
 
-import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.command.CommandSource;
 import net.minecraft.server.MinecraftServer;
 
 /**
@@ -353,15 +354,17 @@ public final class SelfTest {
 
     private static ServerTickController controller(MinecraftServer server) {
         TickControlAccess access = TickControl.forServer(server);
-        if (access instanceof ServerTickController controller) {
-            return controller;
+        // Classic instanceof + cast: 1.16.5 is a Java 8 target, so Java 16
+        // pattern matching does not compile (see ServerLoop's identical note).
+        if (access instanceof ServerTickController) {
+            return (ServerTickController) access;
         }
         throw new IllegalStateException("TickControl controller not registered for server");
     }
 
     private static void run(MinecraftServer server, String command) {
         try {
-            CommandSourceStack source = server.createCommandSourceStack();
+            CommandSource source = commandSource(server);
             server.getCommands().performPrefixedCommand(source, command);
         } catch (Throwable t) {
             fail("command threw: /" + command + " -> " + t);

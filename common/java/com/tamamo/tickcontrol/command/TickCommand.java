@@ -1,3 +1,4 @@
+
 package com.tamamo.tickcontrol.command;
 
 import java.util.Locale;
@@ -11,11 +12,11 @@ import com.tamamo.tickcontrol.core.VersionAdapterHolder;
 import com.tamamo.tickcontrol.core.TickStats;
 import com.tamamo.tickcontrol.core.TickState;
 
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.commands.Commands;
-import net.minecraft.commands.SharedSuggestionProvider;
-import net.minecraft.commands.arguments.TimeArgument;
-import net.minecraft.network.chat.Component;
+import net.minecraft.command.CommandSource;
+import net.minecraft.command.ISuggestionProvider;
+import net.minecraft.command.Commands;
+import net.minecraft.command.arguments.TimeArgument;
+import net.minecraft.util.text.StringTextComponent;
 
 /**
  * 1.20.3 {@code /tick} 命令在 1.20.1 上的回移实现。
@@ -45,9 +46,9 @@ public final class TickCommand {
     private TickCommand() {
     }
 
-    public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
-        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("tick")
-                .requires(source -> source.hasPermission(PERMISSION_LEVEL));
+    public static void register(CommandDispatcher<CommandSource> dispatcher) {
+        LiteralArgumentBuilder<CommandSource> root = Commands.literal("tick")
+                .requires(source -> source.hasPermissionLevel(PERMISSION_LEVEL));
 
         root.then(Commands.literal("query")
                 .executes(context -> tickQuery(context.getSource())));
@@ -56,7 +57,7 @@ public final class TickCommand {
                 .then(Commands.argument("rate",
                                 FloatArgumentType.floatArg(TickState.MIN_TICK_RATE, MAX_TICK_RATE))
                         .suggests((context, builder) ->
-                                SharedSuggestionProvider.suggest(new String[] {DEFAULT_TICK_RATE}, builder))
+                                ISuggestionProvider.suggest(new String[] {DEFAULT_TICK_RATE}, builder))
                         .executes(context -> setTickingRate(
                                 context.getSource(),
                                 FloatArgumentType.getFloat(context, "rate")))));
@@ -73,7 +74,7 @@ public final class TickCommand {
                         .executes(context -> stopStepping(context.getSource())))
                 .then(Commands.argument("time", VersionAdapterHolder.get().timeArgument())
                         .suggests((context, builder) ->
-                                SharedSuggestionProvider.suggest(new String[] {"1t", "1s"}, builder))
+                                ISuggestionProvider.suggest(new String[] {"1t", "1s"}, builder))
                         .executes(context -> step(
                                 context.getSource(),
                                 IntegerArgumentType.getInteger(context, "time")))));
@@ -85,7 +86,7 @@ public final class TickCommand {
                         .executes(context -> stopSprinting(context.getSource())))
                 .then(Commands.argument("time", VersionAdapterHolder.get().timeArgument())
                         .suggests((context, builder) ->
-                                SharedSuggestionProvider.suggest(new String[] {"60s", "1d", "3d"}, builder))
+                                ISuggestionProvider.suggest(new String[] {"60s", "1d", "3d"}, builder))
                         .executes(context -> sprint(
                                 context.getSource(),
                                 IntegerArgumentType.getInteger(context, "time")))));
@@ -97,7 +98,7 @@ public final class TickCommand {
     // 子命令实现
     // ------------------------------------------------------------------
 
-    private static int setTickingRate(CommandSourceStack source, float rate) {
+    private static int setTickingRate(CommandSource source, float rate) {
         TickControlAccess control = TickControl.get(source);
         if (control == null) {
             return 0;
@@ -109,7 +110,7 @@ public final class TickCommand {
         return (int) effective;
     }
 
-    private static int tickQuery(CommandSourceStack source) {
+    private static int tickQuery(CommandSource source) {
         TickControlAccess control = TickControl.get(source);
         if (control == null) {
             return 0;
@@ -146,7 +147,7 @@ public final class TickCommand {
         return (int) rate;
     }
 
-    private static int setFreeze(CommandSourceStack source, boolean frozen) {
+    private static int setFreeze(CommandSource source, boolean frozen) {
         TickControlAccess control = TickControl.get(source);
         if (control == null) {
             return 0;
@@ -163,7 +164,7 @@ public final class TickCommand {
         return frozen ? 1 : 0;
     }
 
-    private static int step(CommandSourceStack source, int ticks) {
+    private static int step(CommandSource source, int ticks) {
         TickControlAccess control = TickControl.get(source);
         if (control == null) {
             return 0;
@@ -178,7 +179,7 @@ public final class TickCommand {
         return 1;
     }
 
-    private static int stopStepping(CommandSourceStack source) {
+    private static int stopStepping(CommandSource source) {
         TickControlAccess control = TickControl.get(source);
         if (control == null) {
             return 0;
@@ -197,7 +198,7 @@ public final class TickCommand {
      * <p>与上游 {@code TickCommand#sprint} 一致：若之前已在冲刺，先提示已停止；
      * 然后总是输出「冲刺中」状态行，返回 1。
      */
-    private static int sprint(CommandSourceStack source, int ticks) {
+    private static int sprint(CommandSource source, int ticks) {
         TickControlAccess control = TickControl.get(source);
         if (control == null) {
             return 0;
@@ -211,7 +212,7 @@ public final class TickCommand {
     }
 
     /** {@code /tick sprint stop}。 */
-    private static int stopSprinting(CommandSourceStack source) {
+    private static int stopSprinting(CommandSource source) {
         TickControlAccess control = TickControl.get(source);
         if (control == null) {
             return 0;
