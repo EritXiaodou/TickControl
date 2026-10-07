@@ -2,7 +2,7 @@
 其中1.12.2包含两个两个版本:<br>
 内置mixin与使用mixinbooter的版本<br>
 两者可以同时添加，同时添加时内置mixin的版本惰性加载，mixinbooter优先加载<br>
-如果你下载的是mixinbooter版本请一定要安装mixinbooter作为前置,如果你下载的是内置mixin的版本可以无视这条<br>
+如果你下载的是mixinbooter版本请一定要安装[mixinbooter](https://www.mcmod.cn/class/4010.html)作为前置,如果你下载的是内置mixin的版本可以无视这条<br>
 查询当前的游戏刻流逝状态及目标游戏刻速率，以及有关游戏刻的性能数据，包括每游戏刻的平均用时和用时的百分位数。<br>
 <summary><code>tick query</code></summary><br>
 设置目标游戏刻速率。<br>
