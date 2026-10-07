@@ -8,6 +8,10 @@
     "MinecraftServerMixinDev",
     "MinecraftServerMixinSrg"
   ],
+  "client": [
+    "ClientLevelMixinDev",
+    "ClientLevelMixinSrg"
+  ],
   "injectors": {
     "defaultRequire": 1
   }
