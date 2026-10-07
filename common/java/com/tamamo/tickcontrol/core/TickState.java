@@ -1,3 +1,4 @@
+
 package com.tamamo.tickcontrol.core;
 
 /**
@@ -102,6 +103,19 @@ public final class TickState {
 
     public int getStepTicks() {
         return this.stepTicks;
+    }
+
+    /**
+     * 扣掉已由排空循环推进的 {@code n} 刻,不会扣成负数。
+     *
+     * <p>对应 {@code ServerLoop.drainStepTicks}:原版 1.20.3 的 {@code /tick step N}
+     * 是"尽快赶完 N 刻",而不是每刻放行一刻。排空循环自己调用世界 tick,
+     * 因此必须同步扣减这里的计数,否则下一轮会重复推进。
+     */
+    public void consumeStepTicks(int n) {
+        if (n > 0) {
+            this.stepTicks = Math.max(0, this.stepTicks - n);
+        }
     }
 
     /**

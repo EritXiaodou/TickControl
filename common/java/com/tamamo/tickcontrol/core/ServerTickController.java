@@ -1,3 +1,4 @@
+
 package com.tamamo.tickcontrol.core;
 
 /**
@@ -196,6 +197,34 @@ public final class ServerTickController implements TickControlAccess {
 
     private boolean sprintReportPending;
 
+    /** 冲刺报告的接收者;由命令层在收到 {@code /tick sprint} 时设置。 */
+    private net.minecraft.command.ICommandSender sprintReportTarget;
+
+    /**
+     * 记住"是谁发起的冲刺",让结束报告能送到那个人手里。
+     *
+     * <h2>为什么需要这个</h2>
+     *
+     * <p>冲刺报告不是命令的即时回执——它要等冲刺真正结束后,由主循环在
+     * {@code consumeSprintReport()} 为真时发出。那一刻命令层的 {@code sender}
+     * 早已不在作用域里,而之前的实现退而求其次,拿<b>服务器本身</b>当来源。
+     *
+     * <p>在 1.12.2 上 {@code MinecraftServer} 虽然实现了 {@code ICommandSender},
+     * 但它的 {@code sendMessage} 只往服务端日志写,<b>玩家什么都看不到</b>——
+     * 截图里的 {@code [Server: tickcontrol.commands.tick.sprint.report]} 就是这么来的。
+     *
+     * <p>存下发起者即可解决。只在命令执行的那一次写入,读取发生在同一线程的主循环,
+     * 无需同步。
+     */
+    public void setSprintReportTarget(net.minecraft.command.ICommandSender target) {
+        this.sprintReportTarget = target;
+    }
+
+    /** 冲刺报告应发给谁;未记录时返回 {@code null},由调用方决定回退。 */
+    public net.minecraft.command.ICommandSender sprintReportTarget() {
+        return this.sprintReportTarget;
+    }
+
     /**
      * 冲刺刻收尾：累计本刻耗时，并在冲刺跑完时结算、恢复原冻结状态。
      *
@@ -281,7 +310,7 @@ public final class ServerTickController implements TickControlAccess {
      *
      * <p>这是给 {@code haveTime()} 用的：1.21.1 的判据是
      * {@code now >= nextTickTimeNanos}，1.20.1 的等价物是
-     * {@code Util.getMillis() < nextTickTime}。把 {@code nextTickTime} 的读取
+     * {@code net.minecraft.util.Util.milliTime() < nextTickTime}。把 {@code nextTickTime} 的读取
      * 换成这个值，{@code haveTime()} 就变成「到点了吗」，
      * 于是 {@code waitUntilNextTick()} 里的 {@code managedBlock} 会正确阻塞到
      * 下一个游戏刻时刻——这才是有节流的版本。
@@ -292,7 +321,7 @@ public final class ServerTickController implements TickControlAccess {
 
     /**
      * {@code MinecraftServer.haveTime()} 的等价物，照抄 1.21.1：
-     * {@code Util.getNanos() < nextTickTimeNanos}。
+     * {@code net.minecraft.util.Util.nanoTime() < nextTickTimeNanos}。
      *
      * <p>把 {@code deadlineNanos} 换算成毫秒与当前毫秒比较即可：
      * {@code haveTime()} 为真表示"还没到下一个游戏刻时刻 / 本刻还有时间"，
@@ -305,7 +334,7 @@ public final class ServerTickController implements TickControlAccess {
 
     // ---- 主循环时钟（对应 1.21.1 的 nextTickTimeNanos / lastOverloadWarningNanos）----
 
-    /** 对应 1.21.1 的 {@code this.nextTickTimeNanos = Util.getNanos();}。 */
+    /** 对应 1.21.1 的 {@code this.nextTickTimeNanos = net.minecraft.util.Util.nanoTime();}。 */
     public void resetClock() {
         this.pacer.resetClock();
     }
@@ -434,6 +463,19 @@ public final class ServerTickController implements TickControlAccess {
     @Override
     public int stepTicks() {
         return state.getStepTicks();
+    }
+
+    /**
+     * 从待步进刻数里扣掉已排空的 {@code n} 刻。
+     *
+     * <p>供 {@code ServerLoop.drainStepTicks} 使用:{@code /tick step N} 必须在
+     * <b>一个服务器刻内</b>尽量赶完 N 刻,而不是每服务器刻只放行一刻。
+     * 排空循环自己推进世界,所以要把计数器同步扣减,避免下一轮重复推进。
+     */
+    public void consumeStepTicks(int n) {
+        if (n > 0) {
+            state.consumeStepTicks(n);
+        }
     }
 
     @Override

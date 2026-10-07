@@ -1,5 +1,7 @@
+
 package com.tamamo.tickcontrol.mixin;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -16,55 +18,99 @@ import org.spongepowered.asm.service.MixinService;
  *
  * <h2>背景</h2>
  *
- * Mixin 注解里的方法名（{@code method = "runServer"}）是编译期常量，无法在运行时
- * 改成生产环境需要的 SRG 名（{@code m_130011_}）。常规做法由 refmap 完成这一步，
- * 但本工程的 refmap 在生产环境<b>完全没有被应用</b>：
+ * Mixin 注解里的方法名是编译期常量，无法在运行时改成生产环境需要的 SRG 名。
+ * 1.12.2 的两个名字域确实不同：
  *
  * <pre>
- * Critical injection failure: @Inject annotation on tickcontrol$runServer could not
- * find any targets matching 'runServer' in net.minecraft.server.MinecraftServer.
- * Using refmap tickcontrol.refmap.json
+ * MinecraftServer.tick                      MCP: tick                SRG: func_71217_p
+ * MinecraftServer.updateTimeLightAndEntities MCP: (原名)              SRG: func_71190_q
+ * WorldServer.tick()                        MCP: tick                SRG: func_72835_b
+ * MinecraftServer.run                       MCP: run                 SRG: run（来自 Runnable）
  * </pre>
  *
- * 已逐项排除：refmap 映射值错误、未打包、config 未加载、{@code data} 缺少上下文键、
- * {@code -Dmixin.env.remapRefMap} 相关开关，以及 manifest / {@code mods.toml}
- * 两种注册方式（详见 README 第 12/13 条）。
+ * 因此两个变体分别写官方名与 SRG 名（都带 {@code remap = false}，都不需要 refmap），
+ * 由本插件按环境选择其一。
  *
- * <h2>做法</h2>
+ * <h2>判据为什么是「扫目标类字节码」而不是别的</h2>
  *
- * 两个变体的注解值分别写官方名与 SRG 名（都带 {@code remap = false}，
- * 因此都不需要 refmap），由本插件按环境选择其一。
- *
- * <h2>环境探测踩过的两个坑</h2>
- *
+ * 踩过的两个坑（1.16.5 上实测）：
  * <ol>
  *   <li>{@code Class.forName("net.minecraft.server.MinecraftServer")} 会让目标类
- *       <b>提前加载</b>，Mixin 直接拒绝注入（{@code MixinTargetAlreadyLoadedException:
- *       target ... was loaded too early.}）；</li>
+ *       <b>提前加载</b>，Mixin 直接拒绝注入
+ *       （{@code MixinTargetAlreadyLoadedException: target ... was loaded too early.}）；</li>
  *   <li>{@code MixinEnvironment.getObfuscationContext()} 在生产环境的 {@code onLoad}
- *       阶段返回 {@code null}，依赖它会在生产环境选错变体。</li>
+ *       阶段可能返回 {@code null}，依赖它会选错变体。</li>
  * </ol>
  *
- * 因此改为<b>读目标类的字节码</b>（{@code MixinService.getClassBytes} + 常量池字符串扫描）：
- * 不加载类、不受上下文初始化时机影响。判据是 {@code MinecraftServer} 的
- * {@code running} 字段名 {@code f_129764_} 是否出现在常量池中。
+ * 所以主判据是<b>读目标类的字节码</b>
+ * （{@code MixinService.getClassBytes} 之外用资源流 + 常量池字符串扫描）：
+ * 不加载类、不受上下文初始化时机影响。1.12.2 的 SRG 前缀是 {@code field_}/{@code func_}
+ * （不是 1.16.5 的 {@code f_}/{@code m_}），所以探针串必须换成 1.12.2 的。
+ *
+ * <p>三个探针的组合已在真实 jar 上验证可区分：SRG 探针
+ * （{@code field_71317_u} / {@code field_71305_c} / {@code func_71217_p}）
+ * 只出现在 SRG jar 里，MCP 探针（{@code serverRunning} / {@code tickTimeArray}）
+ * 只出现在 mapped（MCP）jar 里——已用脚本读两个 jar 里的
+ * {@code MinecraftServer.class} 原始字节逐个验证过（见下面两个常量表的注释）。
+ *
+ * <p>另外提供 {@code -Dtickcontrol.naming=dev|srg} 显式覆盖：名字域判断一旦出错，
+ * Mixin 的 {@code require = 1} 会直接抛错（这是刻意的——宁可响亮地失败，
+ * 也不要 {@code require = 0} 那种「模组加载了但完全没生效」的静默失败），
+ * 出问题时用户可以用这个开关在不重新构建的前提下确定性地指定变体。
  */
 public final class TickControlMixinPlugin implements IMixinConfigPlugin {
 
     private static final String DEV_VARIANT = "com.tamamo.tickcontrol.mixin.MinecraftServerMixinDev";
     private static final String SRG_VARIANT = "com.tamamo.tickcontrol.mixin.MinecraftServerMixinSrg";
 
+    /**
+     * 客户端环境粒子的两个变体。
+     *
+     * <p>它们与主循环变体<b>必须一起选择</b>:名字域是全局事实,不存在
+     * "服务端用 SRG 而客户端用 MCP"的情况。漏掉这里会让两个客户端变体同时生效,
+     * 其中一个必然因为名字对不上而让 {@code require = 1} 抛错 —— 这正是
+     * 本项目反复吃过的那类"只改了一半"的故障。
+     */
+    private static final String CLIENT_DEV_VARIANT =
+            "com.tamamo.tickcontrol.mixin.WorldClientMixinDev";
+    private static final String CLIENT_SRG_VARIANT =
+            "com.tamamo.tickcontrol.mixin.WorldClientMixinSrg";
+
     private static final String TARGET = "net.minecraft.server.MinecraftServer";
-    /** {@code MinecraftServer.running} 的 SRG 名；出现即生产环境。 */
-    private static final String SRG_PROBE = "f_129764_";
-    private static final String SRG_PROBE2 = "m_130011_";
+
+    /** 显式覆盖用的系统属性。 */
+    public static final String NAMING_PROPERTY = "tickcontrol.naming";
+
+    /**
+     * 生产域（SRG）探针：{@code MinecraftServer} 里出现任意一个即判定为生产环境。
+     * 三者都来自 1.12.2 的 srg jar（javap 核验）：{@code serverRunning} /
+     * {@code worlds} / {@code tick} 的 SRG 名。
+     */
+    private static final String[] SRG_PROBES = {
+            "field_71317_u", "field_71305_c", "func_71217_p",
+    };
+
+    /**
+     * 开发域（MCP stable_39）探针。
+     *
+     * <p>刻意不用 {@code run}／{@code tick} 这类两边同名的成员做探针，
+     * 也<b>不能</b>用 {@code updateTimeLightAndEntities}：实测 SRG 版的
+     * {@code MinecraftServer.class} 里含有合成 lambda 方法名
+     * {@code lambda$updateTimeLightAndEntities$0}（Forge 生成 srg jar 时 lambda 名
+     * 沿用了 MCP 名），所以那个串在两个域里都存在。
+     * {@code serverRunning} 与 {@code tickTimeArray} 已实测只出现在 MCP 版里。
+     */
+    private static final String[] MCP_PROBES = {
+            "serverRunning", "tickTimeArray",
+    };
 
     private static Boolean srgEnvironment;
+    private static boolean overrideLogged;
 
     @Override
     public void onLoad(String mixinPackage) {
-        System.out.println("[tickcontrol] mixin plugin loaded; target is "
-                + (isSrgEnvironment() ? "SRG-named (production)" : "MCP-named (development)"));
+        System.out.println("[tickcontrol] mixin plugin loaded; naming domain = "
+                + (isSrgEnvironment() ? "SRG (production)" : "MCP (development)"));
     }
 
     @Override
@@ -76,10 +122,18 @@ public final class TickControlMixinPlugin implements IMixinConfigPlugin {
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         boolean srg = isSrgEnvironment();
+        // 服务端主循环变体
         if (DEV_VARIANT.equals(mixinClassName)) {
             return !srg;
         }
         if (SRG_VARIANT.equals(mixinClassName)) {
+            return srg;
+        }
+        // 客户端粒子变体(判据相同:名字域是全局事实)
+        if (CLIENT_DEV_VARIANT.equals(mixinClassName)) {
+            return !srg;
+        }
+        if (CLIENT_SRG_VARIANT.equals(mixinClassName)) {
             return srg;
         }
         return true;
@@ -91,6 +145,7 @@ public final class TickControlMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public List<String> getMixins() {
+        // 两个变体都写在 tickcontrol.mixins.json 的 mixins 里，由 shouldApplyMixin 选择
         return null;
     }
 
@@ -109,50 +164,102 @@ public final class TickControlMixinPlugin implements IMixinConfigPlugin {
             return srgEnvironment;
         }
 
-        // 1) 若能拿到混淆上下文就直接用
+        // 0) 显式覆盖优先——这是唯一完全确定的判据
+        String override = System.getProperty(NAMING_PROPERTY);
+        if (override != null && !override.isEmpty()) {
+            boolean srg = !"dev".equalsIgnoreCase(override) && !"mcp".equalsIgnoreCase(override);
+            if (!overrideLogged) {
+                overrideLogged = true;
+                System.out.println("[tickcontrol] naming domain forced by -D" + NAMING_PROPERTY
+                        + "=" + override + " -> " + (srg ? "SRG" : "MCP"));
+            }
+            srgEnvironment = srg;
+            return srg;
+        }
+
+        // 1) 主判据：扫目标类字节码常量池里的成员名——不加载类，不会 loaded-too-early
+        Boolean probed = probeTargetClass();
+        if (probed != null) {
+            srgEnvironment = probed;
+            return probed;
+        }
+
+        // 2) 拿不到字节码时退回混淆上下文
         try {
             String ctx = MixinEnvironment.getCurrentEnvironment().getObfuscationContext();
+            System.out.println("[tickcontrol] bytecode probe unavailable; obfuscation context = " + ctx);
             if ("searge".equalsIgnoreCase(ctx) || "srg".equalsIgnoreCase(ctx)) {
                 srgEnvironment = Boolean.TRUE;
                 return true;
             }
+            if ("notch".equalsIgnoreCase(ctx) || "mcp".equalsIgnoreCase(ctx)) {
+                srgEnvironment = Boolean.FALSE;
+                return false;
+            }
         } catch (Throwable ignored) {
-            // 拿不到就继续用字节码探测
+            // 拿不到就继续走默认值
         }
 
-        // 2) 扫目标类字节码常量池里的成员名——不加载类，因此不会触发 loaded-too-early
-        boolean srg = false;
+        // 3) 都判断不出来：默认生产（正式 jar 是主要运行方式）
+        System.out.println("[tickcontrol] naming domain could not be detected;"
+                + " assuming SRG (production). Use -D" + NAMING_PROPERTY + "=dev to force development.");
+        srgEnvironment = Boolean.TRUE;
+        return true;
+    }
+
+    /**
+     * 读目标类字节码并扫描探针串。
+     *
+     * @return {@code TRUE} 生产域 / {@code FALSE} 开发域 / {@code null} 拿不到字节码
+     */
+    private static Boolean probeTargetClass() {
+        // 注意：资源名必须是斜杠形式（点号形式返回 null）
         String[] candidates = {
-                TARGET + ".class",
                 TARGET.replace('.', '/') + ".class",
+                TARGET + ".class",
         };
-        for (String res : candidates) {
-            try (InputStream in = MixinService.getService().getResourceAsStream(res)) {
+        for (String resource : candidates) {
+            try (InputStream in = MixinService.getService().getResourceAsStream(resource)) {
                 if (in == null) {
-                    System.out.println("[tickcontrol] probe: null resource for " + res);
+                    System.out.println("[tickcontrol] naming probe: no resource for " + resource);
                     continue;
                 }
-                byte[] bytes = in.readAllBytes();
-                boolean dev = containsAscii(bytes, "runServer");
-                boolean s = containsAscii(bytes, SRG_PROBE);
-                boolean s2 = containsAscii(bytes, SRG_PROBE2);
-                System.out.println("[tickcontrol] probe: " + res + " -> " + bytes.length + " bytes; runServer="
-                        + dev + " " + SRG_PROBE + "=" + s + " " + SRG_PROBE2 + "=" + s2);
-                if (s || s2) {
-                    srg = true;
-                    break;
+                byte[] bytes = readFully(in);
+                boolean srg = containsAny(bytes, SRG_PROBES);
+                boolean mcp = containsAny(bytes, MCP_PROBES);
+                System.out.println("[tickcontrol] naming probe: " + resource + " -> "
+                        + bytes.length + " bytes; srg=" + srg + " mcp=" + mcp);
+                if (srg) {
+                    return Boolean.TRUE;
                 }
-                if (dev) {
-                    srg = false;
-                    break;
+                if (mcp) {
+                    return Boolean.FALSE;
                 }
             } catch (Throwable t) {
-                System.out.println("[tickcontrol] probe failed for " + res + ": " + t);
+                System.out.println("[tickcontrol] naming probe failed for " + resource + ": " + t);
             }
         }
+        return null;
+    }
 
-        srgEnvironment = srg;
-        return srg;
+    /** {@code InputStream.readAllBytes()} 是 Java 9 API，本工程目标是 Java 8，手写循环。 */
+    private static byte[] readFully(InputStream in) throws java.io.IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        int read;
+        while ((read = in.read(chunk)) > 0) {
+            buffer.write(chunk, 0, read);
+        }
+        return buffer.toByteArray();
+    }
+
+    private static boolean containsAny(byte[] haystack, String[] needles) {
+        for (String needle : needles) {
+            if (containsAscii(haystack, needle)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 在字节数组里查找 ASCII 串（常量池中的名字就是裸 UTF-8 字节）。 */

@@ -9,6 +9,7 @@
   "tickcontrol.commands.tick.query.percentiles": "每刻耗时百分位（按耗时排序，共 %s 个样本）：P50：%s 毫秒，P95：%s 毫秒，P99：%s 毫秒。平均：%s 毫秒",
 
   "tickcontrol.commands.tick.rate.success": "已将目标游戏刻速率设为每秒 %s 刻",
+  "tickcontrol.commands.tick.rate.capped": "请求的速率 %s 超过本版本可达上限，已改用 %s",
 
   "tickcontrol.commands.tick.step.success": "正在步进 %s 刻",
   "tickcontrol.commands.tick.step.fail": "无法步进：游戏刻未冻结",
@@ -18,5 +19,10 @@
   "tickcontrol.commands.tick.sprint.stop.success": "已停止快进",
   "tickcontrol.commands.tick.sprint.stop.fail": "无法停止快进：当前没有正在进行的快进",
   "tickcontrol.commands.tick.freeze.fail.sprinting": "无法冻结：游戏正在快进",
-  "tickcontrol.commands.tick.sprint.report": "快进完成：每秒 %s 刻，每刻 %s 毫秒"
+  "tickcontrol.commands.tick.sprint.report": "快进完成：每秒 %s 刻，每刻 %s 毫秒",
+
+  "tickcontrol.commands.tick.usage": "/tick <query|rate <速率>|freeze|unfreeze|step [<时间>|stop]|sprint <时间>|stop>",
+  "tickcontrol.commands.tick.unavailable": "Tick Control 未在此服务器上生效",
+  "tickcontrol.commands.tick.time.invalid": "无效的时间“%s”：应为正整数刻数，可带 t/s/d 后缀",
+  "tickcontrol.commands.tick.rate.invalid": "无效的游戏刻速率“%s”：应为 1 到 10000 之间的数字"
 }

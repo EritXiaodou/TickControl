@@ -9,6 +9,7 @@
   "tickcontrol.commands.tick.query.percentiles": "Percentiles of tick times (%s samples): P50: %s ms, P95: %s ms, P99: %s ms. Average: %s ms",
 
   "tickcontrol.commands.tick.rate.success": "Set the target tick rate to %s per second",
+  "tickcontrol.commands.tick.rate.capped": "The requested tick rate %s is above this version's reachable maximum; using %s instead",
 
   "tickcontrol.commands.tick.step.success": "Stepping forward %s ticks",
   "tickcontrol.commands.tick.step.fail": "Unable to step forward because ticking is not frozen",
@@ -18,5 +19,10 @@
   "tickcontrol.commands.tick.sprint.stop.success": "Stopped sprinting",
   "tickcontrol.commands.tick.sprint.stop.fail": "Unable to stop sprinting because ticking is not sprinting",
   "tickcontrol.commands.tick.freeze.fail.sprinting": "Unable to freeze the game while it is sprinting",
-  "tickcontrol.commands.tick.sprint.report": "Sprint completed: %s ticks per second, %s ms/tick"
+  "tickcontrol.commands.tick.sprint.report": "Sprint completed: %s ticks per second, %s ms/tick",
+
+  "tickcontrol.commands.tick.usage": "/tick <query|rate <rate>|freeze|unfreeze|step [<time>|stop]|sprint <time>|stop>",
+  "tickcontrol.commands.tick.unavailable": "Tick Control is not active on this server",
+  "tickcontrol.commands.tick.time.invalid": "Invalid time \"%s\": expected a positive number of ticks, optionally with a t/s/d suffix",
+  "tickcontrol.commands.tick.rate.invalid": "Invalid tick rate \"%s\": expected a number between 1 and 10000"
 }

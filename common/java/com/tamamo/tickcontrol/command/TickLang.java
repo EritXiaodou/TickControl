@@ -1,3 +1,4 @@
+
 package com.tamamo.tickcontrol.command;
 
 /**
@@ -14,6 +15,16 @@ public final class TickLang {
 
     private static final String P = "tickcontrol.commands.tick.";
 
+    // --- 用法与参数错误（1.12.2 没有 Brigadier，校验失败要自己给文案）---
+    /** 用法说明，同时用于 {@code /help tick}。 */
+    public static final String USAGE = P + "usage";
+    /** 这个服务器实例没有被 Tick Control 接管（主循环 Mixin 没跑起来）。 */
+    public static final String UNAVAILABLE = P + "unavailable";
+    /** 时间参数非法（参数：原始输入）。 */
+    public static final String TIME_INVALID = P + "time.invalid";
+    /** 速率参数非法（参数：原始输入）。 */
+    public static final String RATE_INVALID = P + "rate.invalid";
+
     // --- 状态（原版 net.minecraft.server.commands.TickCommand 的 commands.tick.status.*）---
     public static final String STATUS_FROZEN = P + "status.frozen";
     public static final String STATUS_RUNNING = P + "status.running";
@@ -27,7 +38,7 @@ public final class TickLang {
 
     // --- /tick rate ---
     public static final String RATE_SUCCESS = P + "rate.success";
-    /** 请求值超过 1.20.1 可达上限时的提示（参数：请求值、实际生效值）。 */
+    /** 请求值超过可达上限时的提示（参数：请求值、实际生效值）。 */
     public static final String RATE_CAPPED = P + "rate.capped";
 
     // --- /tick step ---

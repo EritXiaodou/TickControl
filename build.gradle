@@ -1,108 +1,223 @@
-plugins {
-    id 'java'
-    id 'net.neoforged.gradle.userdev' version '7.0.192'
-}
-
-group = mod_group
-version = mod_version
-base { archivesName = "${mod_id}-neoforge-${minecraft_version}" }
-
-java {
-    toolchain {
-        // 必须用 21：本机 foojay 拉下来的 Adoptium 17 的 zipfs 有缺陷
-        // （FileSystems.newFileSystem(zip, Map.of("create","true")) 之后仍被判定为
-        //  read-only，写入任何条目都抛 ReadOnlyFileSystemException），
-        // 会导致 NeoForm 的 accessTransformer 步骤（jst）必然失败。
-        languageVersion = JavaLanguageVersion.of(21)
+buildscript {
+    repositories {
+        // NOTE: NOT jcenter() -- it is dead. Both reference 1.12.2 mods still name
+        // it and therefore fail out of the box today.
+        mavenCentral()
+        maven {
+            name = 'MinecraftForge'
+            url = 'https://maven.minecraftforge.net/'
+        }
+        maven {
+            name = 'Sponge'
+            url = 'https://repo.spongepowered.org/repository/maven-public/'
+        }
     }
-    // 产物仍保持 Java 17 字节码，1.20.1 的运行时（Java 17）可以正常加载
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    dependencies {
+        // ForgeGradle 2.3 is the last 1.12.2-capable line. It is NOT on the Gradle
+        // Plugin Portal, so this has to go through `buildscript {}` + `apply plugin`
+        // rather than the `plugins { id ... }` block the 1.16.5/1.17.1 projects use.
+        //
+        // Pinned to 2.3.8 (the 2018-era line). 2.3.10 and 2.3-SNAPSHOT resolve to a
+        // modernised build that wants a forge-userdev.jar, which was never
+        // published for 1.12.2, and 2.3.10 also needs a Gradle-7+ API surface
+        // while simultaneously breaking on it.
+        classpath 'net.minecraftforge.gradle:ForgeGradle:3.+'
+    }
 }
 
-tasks.withType(JavaCompile).configureEach {
+// NOTE: deliberately NO `compile` compatibility shim.
+//
+// Adding `configurations.compile.extendsFrom(implementation)` does let
+// ForgeGradle 2.3 apply on Gradle 7+, but it then dies on an API Gradle removed
+// (SourceSet.getCompileConfigurationName). On Gradle 4.10.3 -- which is what
+// this project actually uses -- `compile` still exists natively, so the shim
+// only creates a cycle:
+//     Cyclic extendsFrom from configuration ':compile' and ':implementation'
+//
+// Conclusion from trying both: FG 2.3 is usable only on a Gradle-4-era Gradle
+// running on JDK 8. That combination works; the modern-Gradle shortcut does not.
+
+apply plugin: 'net.minecraftforge.gradle'
+
+version = mod_version
+group = mod_group
+archivesBaseName = "${mod_id}-forge-${minecraft_version}"
+
+sourceCompatibility = targetCompatibility = '1.8'
+compileJava {
+    sourceCompatibility = targetCompatibility = '1.8'
     options.encoding = 'UTF-8'
-    options.release = 17
 }
 
 sourceSets.main {
-    // 加载器无关的核心逻辑，两个平台工程共用同一份源码。
-    // 本仓库每个分支自带工程根下的 common/ 目录，因此用 file('common/...')。
+    // Loader-agnostic core logic, shared with the other platform projects.
+    // file('common/...') and not rootProject.file(...): this is a
+    // standalone build whose rootProject is the forge-1.12.2 directory.
     java.srcDir file('common/java')
     resources.srcDir file('common/resources')
+    // SelfTest is the optional harness; it is excluded everywhere else too and
+    // is not needed now that verification runs against production jars.
+    java.exclude 'com/tamamo/tickcontrol/core/SelfTest.java'
+    // 1.12.2 has no mods.toml at all -- it uses mcmod.info, which already lives
+    // in this project's own resources. Exclude the inherited one so it cannot
+    // end up in the jar.
+    resources.exclude 'META-INF/mods.toml'
+}
+
+minecraft {
+    // FG3 derives the Minecraft/Forge version from the `minecraft` dependency
+    // declared below, so there is deliberately no `version = ...` here.
+    //
+    // `runDir` and `makeObfSourceJar` are FG 2.3-only extension properties;
+    // FG3 removed them, and leaving either in fails configuration with a bare
+    //     > runDir
+    // /   > makeObfSourceJar
+    // because the extension no longer has them. `mappings` is the one property
+    // both lines share.
+    // Literal values rather than `mapping_channel`/`mapping_version` properties:
+    // passing the properties through made FG3 report
+    //     > Must specify both mappings channel and version
+    // even though both were defined in gradle.properties, so the interpolation
+    // is done at configuration time here instead.
+    mappings channel: 'stable', version: '39-1.12'
 }
 
 repositories {
+    mavenCentral()
     maven {
-        name = 'NeoForged'
-        url = 'https://maven.neoforged.net/releases'
+        name = 'MinecraftForge'
+        url = 'https://maven.minecraftforge.net/'
+    }
+    maven {
+        name = 'Sponge'
+        url = 'https://repo.spongepowered.org/repository/maven-public/'
     }
 }
 
 dependencies {
-    // 1.20.1 的 NeoForge 发布在 net.neoforged:forge 下（Forge 47.1.x 分支）
-    implementation "net.neoforged:forge:${neoforge_version}"
+    minecraft "net.minecraftforge:forge:${forge_version}"
+    // 1.12.2's Forge does NOT bundle Mixin, so it has to be brought in
+    // explicitly. 0.8.2 is the version the working 1.12.2 reference mod
+    // (DeadlyMC/forged-carpet) ships; 0.7.11-SNAPSHOT resolves only to a 2018
+    // timestamped build and should not be used.
+    //
+    // This configuration is BOTH on the compile classpath and unpacked into the
+    // shipped jar -- see the `bundleMixin` configuration and the jar task below.
+    // Compile-only is not enough: the manifest's TweakClass and TickControlCore's
+    // MixinBootstrap.init() both need org.spongepowered.asm.* present at LAUNCH,
+    // and nothing else in this instance provides it (verified: the only other mod
+    // in the 1.12.2 test instance is forged-carpet, which shades its own private
+    // copy and does not export it).
+    compile 'org.spongepowered:mixin:0.8.2'
 }
 
-runs {
-    configureEach {
-        modSource sourceSets.main
-        workingDirectory project.file('run')
-        // 开发环境从 build/classes + build/resources 加载，没有 jar manifest，
-        // 所以用 JVM 参数直接告诉 Mixin 去加载哪个配置。
-        jvmArguments '-Dmixin.configs=tickcontrol.mixins.json',
-                     '-DMixinConfigs=tickcontrol.mixins.json'
+// ---------------------------------------------------------------------------
+// Bundle Mixin into the shipped jar.
+//
+// Why this is hand-rolled instead of using the shadow plugin: mixin-0.8.2.jar
+// already contains a RELOCATED copy of everything it needs (verified: 477
+// entries under org/spongepowered/asm/**, including the bridge/remapper classes),
+// so there is exactly one artifact to unpack and no relocation or dependency
+// merging to do. A custom Jar task avoids adding a plugin dependency to a
+// Gradle-4.9 / ForgeGradle-3 build, where plugin compatibility is fragile.
+//
+// Verified present in mixin-0.8.2.jar: org/spongepowered/asm/launch/MixinTweaker.class
+// and org/spongepowered/asm/launch/MixinBootstrap.class -- the two classes the
+// manifest and the coremod reference respectively.
+// ---------------------------------------------------------------------------
+configurations {
+    bundleMixin
+}
+
+dependencies {
+    bundleMixin 'org.spongepowered:mixin:0.8.2'
+}
+
+// Put the bundled classes into build/bundledMixin first, then merge them into the
+// jar. Doing it in two steps keeps the jar task's inputs declarative (Gradle can
+// see the directory) instead of reaching into a dependency archive at execution.
+task extractMixin(type: Copy) {
+    from({ configurations.bundleMixin.collect { zipTree(it) } }) {
+        // Mixin's own metadata must not replace ours.
+        exclude 'META-INF/MANIFEST.MF'
+        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+        exclude 'META-INF/maven/**'
+        // Mixin ships a service file for its own launch plumbing; keep the rest
+        // of META-INF out of the way of Forge's scanning but leave services.
+        include 'org/spongepowered/**'
+        include 'META-INF/services/**'
     }
-    client {
-        client()
+    into "$buildDir/bundledMixin"
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'mcversion', minecraft_version
+
+    // The explicit `from(...)` copy specs below bypass the source set's own
+    // `resources.exclude`, so the inherited 1.16.5 mods.toml has to be excluded
+    // here as well -- without this it ends up in the 1.12.2 jar (verified: it did).
+    exclude 'META-INF/mods.toml'
+
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+        expand 'version': project.version, 'mcversion': minecraft_version
     }
-    server {
-        server()
-        // NeoGradle 把 --nogui 通过 programArguments 传会被标为 deprecated，
-        // 用 arguments 更合适；同时避免开发环境下 DedicatedServer 走到
-        // 仅客户端的 LanServerPinger 分支（见 README「踩过的坑」）。
-        arguments '--nogui'
-        if (project.hasProperty('selftest')) {
-            jvmArguments '-Dtickcontrol.selftest=true', '-Dtickcontrol.selftest.stop=true'
-        }
+    from(sourceSets.main.resources.srcDirs) {
+        exclude 'mcmod.info'
+        exclude 'META-INF/mods.toml'
     }
 }
 
-tasks.named('processResources', ProcessResources).configure {
-    // mods.toml 是 common/ 里与 Forge 侧共用的一份，里面引用了 ${forge_version_range}，
-    // 所以这里两个区间都要提供（NeoForge 1.20.1 的依赖 modId 仍是 "forge"）。
-    def props = [
-        mod_id                 : mod_id,
-        mod_name               : mod_name,
-        mod_version            : mod_version,
-        mod_authors            : mod_authors,
-        mod_license            : mod_license,
-        mod_description        : mod_description,
-        minecraft_version      : minecraft_version,
-        minecraft_version_range: minecraft_version_range,
-        neoforge_version       : neoforge_version,
-        neoforge_version_range : neoforge_version_range,
-        forge_version_range    : neoforge_version_range,
-        loader_version_range   : loader_version_range,
-    ]
-    inputs.properties(props)
-    filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
-        expand props
-    }
-}
+jar {
+    // Pull in the unpacked Mixin classes so the shipped jar is self-contained.
+    dependsOn extractMixin
+    from "$buildDir/bundledMixin"
 
-tasks.named('jar', Jar).configure {
     manifest {
         attributes([
-            'Specification-Title'     : mod_id,
-            'Specification-Vendor'    : mod_authors,
-            'Specification-Version'   : '1',
-            'Implementation-Title'    : mod_name,
-            'Implementation-Version'  : mod_version,
-            'Implementation-Vendor'   : mod_authors,
-            // Forge/NeoForge 1.20.1 通过 manifest 的 MixinConfigs 发现 Mixin 配置；
-            // mods.toml 里的 [[mixins]] 段是 1.20.5+ 的写法，1.20.1 上不生效。
-            'MixinConfigs'            : 'tickcontrol.mixins.json',
+            'Specification-Title'    : mod_id,
+            'Specification-Vendor'   : mod_authors,
+            'Specification-Version'  : '1',
+            'Implementation-Title'   : mod_name,
+            'Implementation-Version' : mod_version,
+            'Implementation-Vendor'  : mod_authors,
+
+            // ---- 1.12.2 Mixin wiring ----------------------------------------
+            // 1.12.2's Forge does NOT ship Mixin and has no `MixinConfigs` manifest
+            // discovery, so the wiring differs from 1.16.5.
+            //
+            // ALL FOUR attributes are required, and this was proven the hard way:
+            // removing FMLCorePlugin/FMLCorePluginContainsFMLMod (because they looked
+            // redundant with TweakClass) silently broke the mod. TickControlCore's
+            // constructor is the ONLY thing that registers the mixin config --
+            // `Mixins.addConfiguration("tickcontrol.mixins.json")`. Without it no
+            // mixin applied, ServerLoop never took over the server, and every /tick
+            // subcommand died with "Tick Control is not active on this server".
+            //
+            // Verified: the built-in 1.12.2 jar has NO MixinConfigs manifest attribute
+            // (unlike the MixinBooter variant, which does -- that is why MixinBooter
+            // kept working and masked how narrow the real dependency was).
+            //
+            //   * FMLCorePlugin points at our IFMLLoadingPlugin, whose constructor
+            //     calls MixinBootstrap.init() + Mixins.addConfiguration.
+            //   * FMLCorePluginContainsFMLMod tells FML the same jar also contains
+            //     the @Mod class, so it must still be added to the mod list.
+            //   * ForceLoadAsMod keeps it loaded as a mod despite the coremod entry.
+            //   * TweakClass is read by FML's CoreModManager and injected as a
+            //     cascading tweaker (FMLTweaker.injectCascadingTweak). Verified
+            //     against the 1.12.2 Forge jar: CoreModManager's constant pool
+            //     contains "TweakClass". Class name verified with javap against
+            //     mixin-0.8.2.jar: org.spongepowered.asm.launch.MixinTweaker.
+            //
+            // MixinBooter logs "declares both a TweakClass and FMLCorePlugin ... Forge
+            // skips the coremod in this case" and then rescues it via its own
+            // CoremodsRescuer tweak; the warning is cosmetic here and must NOT be
+            // "fixed" by deleting the declaration again.
+            'FMLCorePlugin'               : 'com.tamamo.tickcontrol.core.TickControlCore',
+            'FMLCorePluginContainsFMLMod' : 'true',
+            'ForceLoadAsMod'              : 'true',
+            'TweakClass'                  : 'org.spongepowered.asm.launch.MixinTweaker',
         ])
     }
 }

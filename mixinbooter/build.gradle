@@ -1,0 +1,166 @@
+buildscript {
+    repositories {
+        // NOT jcenter() -- it is dead, and both 1.12.2 reference mods still name it.
+        mavenCentral()
+        maven { name = 'MinecraftForge'; url = 'https://maven.minecraftforge.net/' }
+        maven { name = 'Sponge'; url = 'https://repo.spongepowered.org/repository/maven-public/' }
+    }
+    dependencies {
+        // ForgeGradle 3.+ on Gradle 4.9 / JDK 8 is the combination proven to work for
+        // 1.12.2 in this repo (see forge-1.12.2/build.gradle for the full reasoning).
+        classpath 'net.minecraftforge.gradle:ForgeGradle:3.+'
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle'
+
+version = mod_version
+group = mod_group
+archivesBaseName = "${mod_id}-forge-${minecraft_version}-mixinbooter"
+
+sourceCompatibility = targetCompatibility = '1.8'
+compileJava {
+    sourceCompatibility = targetCompatibility = '1.8'
+    options.encoding = 'UTF-8'
+}
+
+sourceSets.main {
+    // Identical core logic to forge-1.12.2. Only the Mixin delivery differs, so the
+    // sources are shared rather than forked -- a fork would drift.
+    java.srcDir file('../common/java')
+    resources.srcDir file('../common/resources')
+
+    // The @Mod entry class lives in forge-1.12.2's OWN source tree (platform glue, not
+    // shared core logic), so that tree is on the source path -- otherwise the jar contains
+    // no @Mod and FML reports "FML has found a non-mod file ... in your mods directory",
+    // i.e. the mixins still apply but /tick is never registered. That was the
+    // "MixinBooter mod not loaded" symptom in an early build that shipped 38 entries with
+    // no TickControlForge.class at all.
+    java.srcDir file('../src/main/java')
+
+    java.exclude 'com/tamamo/tickcontrol/core/SelfTest.java'
+
+    // THE key exclusion. TickControlCore is the self-contained coremod bootstrap: its
+    // constructor calls MixinBootstrap.init() and Mixins.addConfiguration(...), and it
+    // is registered through the manifest's FMLCorePlugin. With MixinBooter installed,
+    // Mixin is already initialised before any mod loads, so a second bootstrap is both
+    // redundant and a source of "Mixin is already initialised" style trouble. It is
+    // left out of the jar entirely and the manifest declares no FMLCorePlugin.
+    java.exclude 'com/tamamo/tickcontrol/core/TickControlCore.java'
+
+    // 1.12.2 uses mcmod.info, which lives in this project's own resources; exclude the
+    // inherited mods.toml from the shared resource tree so it cannot reach the jar.
+    resources.exclude 'META-INF/mods.toml'
+}
+
+// ---------------------------------------------------------------------------
+// The two 1.12.2 deliveries need DIFFERENT modids, and @Mod(modid=...) is a
+// COMPILE-TIME constant, so the entry class has to exist twice.
+// ---------------------------------------------------------------------------
+//
+// Same modid is not an option: FML throws DuplicateModsFoundException and the client dies at
+// startup. Verified from the user's log:
+//
+//   [Client thread/FATAL] [FML]: Found a duplicate mod tickcontrol at ...
+//   net.minecraftforge.fml.common.DuplicateModsFoundException
+//
+// TickControlForge is therefore defined twice: ../src/main/java (modid tickcontrolbuiltin)
+// and this project's entry/ (modid tickcontrol). They cannot both be compiled -- that is a
+// "duplicate class" error -- and java.exclude cannot separate them because it matches by
+// PATH across ALL srcDirs, so excluding the shared one also removed this project's copy and
+// produced a jar with no @Mod class at all.
+//
+// compileJava.source is used instead: it is an explicit file list, so the shared entry class
+// is simply left out of it and this project's copy is added.
+compileJava {
+    source = sourceSets.main.java.matching {
+        exclude 'com/tamamo/tickcontrol/forge/TickControlForge.java'
+    }.plus(files('entry'))
+}
+
+// The two 1.12.2 deliveries intentionally share modid `tickcontrol` and therefore both come
+// from the SAME entry class in ../src/main/java. That is deliberate: they are one mod packaged
+// two ways, not two mods, and FML's "Found a duplicate mod" (Loader.identifyDuplicates) only
+// warns -- it does not refuse to load. The built-in copy yields to this one when MixinBooter
+// is present, so /tick is never registered twice.
+//
+// An earlier attempt gave them distinct modids to silence that warning and required a
+// duplicated entry class. It was reverted: a per-variant modid cannot be expressed without
+// forking the file, and forking it means two jars claiming to be different mods while being
+// the same mod -- worse for the user than one cosmetic warning. `java.exclude` could not
+// express the override anyway (it matches by path across ALL srcDirs, so excluding the shared
+// copy also removed this variant's own copy, producing a jar with no @Mod at all).
+
+minecraft {
+    // FG3 takes the Minecraft/Forge version from the `minecraft` dependency below.
+    // Literal mappings values: interpolating the properties made FG3 report
+    // "Must specify both mappings channel and version".
+    mappings channel: 'stable', version: '39-1.12'
+}
+
+repositories {
+    mavenCentral()
+    maven { name = 'MinecraftForge'; url = 'https://maven.minecraftforge.net/' }
+    // MixinBooter lives here.
+    maven { name = 'CleanroomMC'; url = 'https://maven.cleanroommc.com' }
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${forge_version}"
+
+    // MixinBooter supplies the Mixin API transitively (mixinextras-common ->
+    // cleanmix 0.7.2, which contains org.spongepowered.asm.*). compileOnly: it is a
+    // runtime prerequisite the user installs, NOT something we ship.
+    //
+    // Compare with forge-1.12.2, which `compile`s mixin:0.8.2 AND unpacks it into the
+    // jar (902 KB, 589 Mixin entries). Here the jar stays ~40 KB.
+    compileOnly("zone.rong:mixinbooter:${mixinbooter_version}") {
+        // Pull the whole graph so mixin classes resolve at compile time.
+        transitive = true
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'mcversion', minecraft_version
+
+    // The explicit from(...) copies below bypass the source set's own exclude, so
+    // mods.toml has to be excluded here as well.
+    exclude 'META-INF/mods.toml'
+
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+        expand 'version': project.version, 'mcversion': minecraft_version
+    }
+    from(sourceSets.main.resources.srcDirs) {
+        exclude 'mcmod.info'
+        exclude 'META-INF/mods.toml'
+    }
+}
+
+jar {
+    manifest {
+        attributes([
+            'Specification-Title'    : mod_id,
+            'Specification-Vendor'   : mod_authors,
+            'Specification-Version'  : '1',
+            'Implementation-Title'   : mod_name,
+            'Implementation-Version' : mod_version,
+            'Implementation-Vendor'  : mod_authors,
+
+            // ---- Mixin wiring, the MixinBooter way --------------------------------
+            // MixinBooter reads the `MixinConfigs` manifest attribute straight off every
+            // mod jar and registers the configs itself, so NO loader class and NO
+            // TweakClass are needed. Contrast with forge-1.12.2, which must ship
+            // FMLCorePlugin + FMLCorePluginContainsFMLMod + ForceLoadAsMod + TweakClass
+            // and bundle the whole Mixin library.
+            //
+            // Attribute name and semantics per the MixinBooter README:
+            //   "MixinConfigs manifest attribute: no loader class needed. Add a
+            //    comma-separated list of your mixin configuration names to your jar's
+            //    manifest. MixinBooter reads it straight from the jar's manifest and
+            //    registers them."
+            'MixinConfigs'           : 'tickcontrol.mixins.json',
+        ])
+    }
+}

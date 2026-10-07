@@ -1,0 +1,11 @@
+pluginManagement {
+    repositories {
+        maven { name = 'MinecraftForge'; url = 'https://maven.minecraftforge.net/' }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+// Standalone build: its rootProject is this directory, so every path that reaches
+// outside it uses file('../...'), same as the other platform projects.
+rootProject.name = 'TickControl-Forge-1.12.2-MixinBooter'

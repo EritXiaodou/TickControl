@@ -1,0 +1,12 @@
+[{
+  "modid": "tickcontrolbuiltin",
+  "name": "Tick Control (built-in Mixin)",
+  "description": "Backport of the vanilla /tick command (query, rate, freeze, unfreeze, step, sprint) to 1.12.2. Ships its own Mixin. If MixinBooter is present this edition stands down so that /tick is served by the MixinBooter edition.",
+  "version": "${version}",
+  "mcversion": "${mcversion}",
+  "authorList": ["Tamamo"],
+  "credits": "",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}]

@@ -1,0 +1,25 @@
+# TickControl —— 1.12.2 的简体中文语言文件
+#
+# 见 en_us.lang 顶部的说明:1.12.2 读的是 .lang 而不是 .json,
+# 只提供 .json 会让客户端语言表里没有这些键,聊天栏显示原始键名。
+tickcontrol.commands.tick.status.frozen=游戏已冻结
+tickcontrol.commands.tick.status.running=游戏正常运行
+tickcontrol.commands.tick.status.lagging=游戏正在运行，但无法维持目标速率
+tickcontrol.commands.tick.status.sprinting=游戏正在快进
+tickcontrol.commands.tick.query.rate.running=目标游戏刻速率：每秒 %s 刻。每刻平均用时：%s 毫秒（目标：%s 毫秒）
+tickcontrol.commands.tick.query.rate.sprinting=目标游戏刻速率：每秒 %s 刻（快进期间已忽略）。每刻平均用时：%s 毫秒
+tickcontrol.commands.tick.query.percentiles=每刻耗时百分位（共 %s 个样本）：P50：%s 毫秒，P95：%s 毫秒，P99：%s 毫秒。平均：%s 毫秒
+tickcontrol.commands.tick.rate.success=已将目标游戏刻速率设为每秒 %s 刻
+tickcontrol.commands.tick.rate.capped=请求的速率 %s 超过本版本可达上限，已改用 %s
+tickcontrol.commands.tick.step.success=正在步进 %s 刻
+tickcontrol.commands.tick.step.fail=无法步进：游戏刻未冻结
+tickcontrol.commands.tick.step.stop.success=已停止步进
+tickcontrol.commands.tick.step.stop.fail=无法停止步进：当前没有正在进行的步进
+tickcontrol.commands.tick.sprint.stop.success=已停止快进
+tickcontrol.commands.tick.sprint.stop.fail=无法停止快进：当前没有正在进行的快进
+tickcontrol.commands.tick.freeze.fail.sprinting=无法冻结：游戏正在快进
+tickcontrol.commands.tick.sprint.report=快进完成：每秒 %s 刻，每刻 %s 毫秒
+tickcontrol.commands.tick.usage=/tick <query|rate <速率>|freeze|unfreeze|step [<时间>|stop]|sprint <时间>|stop>
+tickcontrol.commands.tick.unavailable=Tick Control 未在此服务器上生效
+tickcontrol.commands.tick.time.invalid=无效的时间“%s”：应为正整数刻数，可带 t/s/d 后缀
+tickcontrol.commands.tick.rate.invalid=无效的游戏刻速率“%s”：应为 1 到 10000 之间的数字

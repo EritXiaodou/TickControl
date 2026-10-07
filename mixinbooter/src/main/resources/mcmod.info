@@ -1,0 +1,12 @@
+[{
+  "modid": "tickcontrol",
+  "name": "Tick Control (MixinBooter)",
+  "description": "Backport of the vanilla /tick command (query, rate, freeze, unfreeze, step, sprint) to 1.12.2. Requires MixinBooter.",
+  "version": "${version}",
+  "mcversion": "${mcversion}",
+  "authorList": ["Tamamo"],
+  "credits": "Mixin provided by MixinBooter (CleanroomMC).",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": ["mixinbooter"]
+}]

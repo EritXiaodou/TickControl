@@ -1,6 +1,6 @@
 {
   "pack": {
-    "description": "${mod_name}",
-    "pack_format": 15
+    "description": "Tick Control",
+    "pack_format": 3
   }
 }

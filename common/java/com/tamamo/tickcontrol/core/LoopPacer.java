@@ -1,8 +1,8 @@
+
 package com.tamamo.tickcontrol.core;
 
 import java.util.concurrent.locks.LockSupport;
 
-import net.minecraft.util.TimeUtil;
 
 /**
  * 游戏刻节拍器：1.20.3+ {@code TickRateManager} 与主循环调度的等价实现（纳秒制）。
@@ -123,7 +123,7 @@ public final class LoopPacer {
     // 主循环需要的时钟查询（对应 1.21.1 的 nextTickTimeNanos / lastOverloadWarningNanos）
     // ------------------------------------------------------------------
 
-    /** 对应 1.21.1 的 {@code this.nextTickTimeNanos = Util.getNanos();}。 */
+    /** 对应 1.21.1 的 {@code this.nextTickTimeNanos = net.minecraft.util.Util.nanoTime();}。 */
     public void resetClock() {
         long now = System.nanoTime();
         this.deadlineNanos = now + this.lastPeriodNanos;
@@ -147,7 +147,7 @@ public final class LoopPacer {
 
     /** 当前截止时刻（毫秒）。 */
     public long deadlineMillis() {
-        long millis = this.deadlineNanos / TimeUtil.NANOSECONDS_PER_MILLISECOND;
+        long millis = this.deadlineNanos / 1_000_000L;
         return millis == 0L ? System.currentTimeMillis() : millis;
     }
 
@@ -167,7 +167,7 @@ public final class LoopPacer {
     /**
      * 距下一个游戏刻时刻还剩多少毫秒（可为负）。
      *
-     * <p>对应上游 {@code nextTickTimeNanos - Util.getNanos()} 的符号：
+     * <p>对应上游 {@code nextTickTimeNanos - net.minecraft.util.Util.nanoTime()} 的符号：
      * 大于 0 表示还没到点。
      */
     /**
@@ -191,10 +191,10 @@ public final class LoopPacer {
             return 1L;
         }
         long remaining = this.deadlineNanos - System.nanoTime();
-        return remaining / TimeUtil.NANOSECONDS_PER_MILLISECOND;
+        return remaining / 1_000_000L;
     }
 
-    private long lastPeriodNanos = TimeUtil.NANOSECONDS_PER_MILLISECOND * 50L;
+    private long lastPeriodNanos = 1_000_000L * 50L;
     private long lastOverloadWarningNanos;
 
     // ------------------------------------------------------------------
@@ -277,8 +277,8 @@ public final class LoopPacer {
     private void finishSprint() {
         long done = this.scheduledSprintTicks - this.remainingSprintTicks;
         double elapsedMillis = Math.max(1.0D, (double) this.sprintTimeSpendNanos)
-                / TimeUtil.NANOSECONDS_PER_MILLISECOND;
-        this.lastSprintTps = (double) (TimeUtil.NANOSECONDS_PER_SECOND / TimeUtil.NANOSECONDS_PER_MILLISECOND)
+                / 1_000_000L;
+        this.lastSprintTps = (double) (1_000_000_000L / 1_000_000L)
                 * (double) done / elapsedMillis;
         this.lastSprintTicks = done;
         this.lastSprintMillisPerTick = done == 0L ? 0.0D : elapsedMillis / (double) done;
@@ -354,10 +354,10 @@ public final class LoopPacer {
     // 实测每刻耗时（照抄 1.21.1 MinecraftServer 的 tick 计时机制）
     //
     // 上游 tickServer 里的写法：
-    //     long i = Util.getNanos();
+    //     long i = net.minecraft.util.Util.nanoTime();
     //     this.tickCount++;
     //     ... 本刻工作 ...
-    //     long j = Util.getNanos() - i;
+    //     long j = net.minecraft.util.Util.nanoTime() - i;
     //     int k = this.tickCount % 100;
     //     this.aggregatedTickTimesNanos = this.aggregatedTickTimesNanos - this.tickTimesNanos[k];
     //     this.aggregatedTickTimesNanos += j;
@@ -448,15 +448,15 @@ public final class LoopPacer {
     public double measuredMillisPerTick(long fallbackPeriodNanos) {
         int divisor = Math.min(TICK_TIMES_SPAN, Math.max(this.measuredTickCount, 1));
         if (this.measuredTickCount == 0) {
-            return fallbackPeriodNanos / (double) TimeUtil.NANOSECONDS_PER_MILLISECOND;
+            return fallbackPeriodNanos / (double) 1_000_000L;
         }
         return this.aggregatedTickNanos / (double) divisor
-                / (double) TimeUtil.NANOSECONDS_PER_MILLISECOND;
+                / (double) 1_000_000L;
     }
 
     /** 纳秒/毫秒换算是官方工具类提供的。 */
     public static long millisToNanos(long millis) {
-        return millis * TimeUtil.NANOSECONDS_PER_MILLISECOND;
+        return millis * 1_000_000L;
     }
 
     /** 排空任务队列：返回是否取到了至少一个任务。 */
