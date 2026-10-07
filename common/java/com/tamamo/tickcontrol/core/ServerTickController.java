@@ -1,3 +1,4 @@
+
 package com.tamamo.tickcontrol.core;
 
 /**
@@ -281,7 +282,7 @@ public final class ServerTickController implements TickControlAccess {
      *
      * <p>这是给 {@code haveTime()} 用的：1.21.1 的判据是
      * {@code now >= nextTickTimeNanos}，1.20.1 的等价物是
-     * {@code Util.getMillis() < nextTickTime}。把 {@code nextTickTime} 的读取
+     * {@code net.minecraft.util.Util.milliTime() < nextTickTime}。把 {@code nextTickTime} 的读取
      * 换成这个值，{@code haveTime()} 就变成「到点了吗」，
      * 于是 {@code waitUntilNextTick()} 里的 {@code managedBlock} 会正确阻塞到
      * 下一个游戏刻时刻——这才是有节流的版本。
@@ -292,7 +293,7 @@ public final class ServerTickController implements TickControlAccess {
 
     /**
      * {@code MinecraftServer.haveTime()} 的等价物，照抄 1.21.1：
-     * {@code Util.getNanos() < nextTickTimeNanos}。
+     * {@code net.minecraft.util.Util.nanoTime() < nextTickTimeNanos}。
      *
      * <p>把 {@code deadlineNanos} 换算成毫秒与当前毫秒比较即可：
      * {@code haveTime()} 为真表示"还没到下一个游戏刻时刻 / 本刻还有时间"，
@@ -305,7 +306,7 @@ public final class ServerTickController implements TickControlAccess {
 
     // ---- 主循环时钟（对应 1.21.1 的 nextTickTimeNanos / lastOverloadWarningNanos）----
 
-    /** 对应 1.21.1 的 {@code this.nextTickTimeNanos = Util.getNanos();}。 */
+    /** 对应 1.21.1 的 {@code this.nextTickTimeNanos = net.minecraft.util.Util.nanoTime();}。 */
     public void resetClock() {
         this.pacer.resetClock();
     }

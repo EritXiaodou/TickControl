@@ -1,17 +1,14 @@
 pluginManagement {
     repositories {
+        // RetroFuturaGradle is published to the GTNH nexus, not the Gradle Plugin
+        // Portal, so it must be declared here.
         maven {
-            name = 'NeoForged'
-            url = 'https://maven.neoforged.net/releases'
+            name = 'GTNH'
+            url = 'https://nexus.gtnewhorizons.com/repository/public/'
         }
         gradlePluginPortal()
         mavenCentral()
     }
 }
 
-plugins {
-    // 自动下载缺失的 JDK（1.20.1 需要 Java 17）
-    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
-}
-
-rootProject.name = 'TickControl-NeoForge'
+rootProject.name = 'TickControl-Forge-1.7.10'

@@ -1,48 +1,62 @@
+
 package com.tamamo.tickcontrol.command;
 
 /**
- * 翻译键常量。
+ * 1.7.10 命令层用到的翻译键。
  *
- * <p>键名沿用原版 {@code /tick} 命令的 {@code commands.tick.*} 结构，只加了
- * {@code tickcontrol.} 前缀，避免与其他模组/资源包抢同名键。这样整合包作者
- * 可以用资源包按原版习惯覆盖文案。
+ * <h2>为什么要集中在一处</h2>
+ *
+ * <p>1.7.10 的 {@code CommandTick} 最初把消息<b>硬编码成英文字面量</b>,所以无论客户端
+ * 语言是什么都只显示英文。1.12.2 用的是 {@code ChatComponentTranslation} + 语言文件,
+ * 这里对齐同样的做法,键名也保持一致,便于两条产线对照。
+ *
+ * <p>语言文件在 {@code assets/tickcontrol/lang/{en_us,zh_cn}.lang}。
+ * <b>1.7.10 与 1.12.2 一样只读 {@code .lang},不读 {@code .json}</b>
+ * —— 这一点在 1.12.2 上踩过坑:JSON 文件明明在 jar 里、内容也对,但加载器根本不看它。
  */
 public final class TickLang {
 
-    private TickLang() {
-    }
-
+    /** 所有键的公共前缀,与 1.12.2 一致。 */
     private static final String P = "tickcontrol.commands.tick.";
 
-    // --- 状态（原版 net.minecraft.server.commands.TickCommand 的 commands.tick.status.*）---
-    public static final String STATUS_FROZEN = P + "status.frozen";
-    public static final String STATUS_RUNNING = P + "status.running";
-    public static final String STATUS_LAGGING = P + "status.lagging";
-    public static final String STATUS_SPRINTING = P + "status.sprinting";
+    /** 无法取到服务器实例(理论上不会发生)。 */
+    public static final String NO_SERVER = P + "no.server";
 
-    // --- /tick query ---
-    public static final String QUERY_RATE_RUNNING = P + "query.rate.running";
-    public static final String QUERY_RATE_SPRINTING = P + "query.rate.sprinting";
-    public static final String QUERY_PERCENTILES = P + "query.percentiles";
+    public static final String USAGE = P + "usage";
 
-    // --- /tick rate ---
+    // ---- rate ----
+    public static final String RATE_USAGE = P + "rate.usage";
+    public static final String RATE_NOT_A_NUMBER = P + "rate.notanumber";
+    public static final String RATE_RANGE = P + "rate.range";
     public static final String RATE_SUCCESS = P + "rate.success";
-    /** 请求值超过 1.20.1 可达上限时的提示（参数：请求值、实际生效值）。 */
-    public static final String RATE_CAPPED = P + "rate.capped";
+    public static final String RATE_UNSUPPORTED = P + "rate.unsupported";
 
-    // --- /tick step ---
+    // ---- freeze / unfreeze ----
+    public static final String FREEZE_FAIL_SPRINTING = P + "freeze.fail.sprinting";
+    public static final String FREEZE_SUCCESS = P + "freeze.success";
+    public static final String UNFREEZE_SUCCESS = P + "unfreeze.success";
+
+    // ---- step ----
     public static final String STEP_SUCCESS = P + "step.success";
     public static final String STEP_FAIL = P + "step.fail";
     public static final String STEP_STOP_SUCCESS = P + "step.stop.success";
     public static final String STEP_STOP_FAIL = P + "step.stop.fail";
+    public static final String TIME_INVALID = P + "time.invalid";
 
-    // --- /tick sprint（对应 1.21.1 TickCommand / ServerTickRateManager）---
-    /** 冲刺被手动停止（{@code /tick sprint stop}，或冲刺中再次发起）。 */
+    // ---- sprint ----
+    public static final String SPRINT_SUCCESS = P + "sprint.success";
     public static final String SPRINT_STOP_SUCCESS = P + "sprint.stop.success";
-    /** 未在冲刺时执行 {@code /tick sprint stop}。 */
     public static final String SPRINT_STOP_FAIL = P + "sprint.stop.fail";
-    /** 冲刺期间不允许冻结（与上游一致）。 */
-    public static final String FREEZE_FAIL_SPRINTING = P + "freeze.fail.sprinting";
-    /** 冲刺结束报告（参数：实测 TPS、每刻毫秒数）。 */
     public static final String SPRINT_REPORT = P + "sprint.report";
+
+    // ---- query ----
+    public static final String STATUS_FROZEN = P + "status.frozen";
+    public static final String STATUS_SPRINTING = P + "status.sprinting";
+    public static final String STATUS_LAGGING = P + "status.lagging";
+    public static final String STATUS_RUNNING = P + "status.running";
+    public static final String QUERY_RATE = P + "query.rate";
+    public static final String QUERY_PERCENTILES = P + "query.percentiles";
+
+    private TickLang() {
+    }
 }

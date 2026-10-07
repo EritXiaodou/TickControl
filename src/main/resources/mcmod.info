@@ -1,0 +1,12 @@
+[{
+  "modid": "tickcontrol",
+  "name": "Tick Control",
+  "description": "Backport of the vanilla /tick command (freeze, step, rate, sprint, query) to 1.7.10.",
+  "version": "1.0.0-beta1",
+  "mcversion": "1.7.10",
+  "authorList": ["Tamamo"],
+  "credits": "",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}]

@@ -1,0 +1,37 @@
+# TickControl — 1.7.10 English language file
+#
+# 1.7.10 reads the legacy key=value .lang format (same as 1.12.2), NOT .json.
+# Lines starting with # are comments. %s are positional arguments supplied by
+# ChatComponentTranslation.
+tickcontrol.commands.tick.no.server=TickControl: no server instance available
+
+tickcontrol.commands.tick.usage=/tick <query|rate <rate>|freeze|unfreeze|step [<time>|stop]|sprint [<time>|stop]>
+
+tickcontrol.commands.tick.rate.usage=Usage: /tick rate <rate>
+tickcontrol.commands.tick.rate.notanumber=Not a number: %s
+tickcontrol.commands.tick.rate.range=Rate must be between %s and %s
+tickcontrol.commands.tick.rate.success=Set the target tick rate to %s per second
+tickcontrol.commands.tick.rate.unsupported=Changing the tick rate is not supported on 1.7.10
+
+tickcontrol.commands.tick.freeze.fail.sprinting=Cannot freeze: a sprint is in progress
+tickcontrol.commands.tick.freeze.success=Froze ticking
+tickcontrol.commands.tick.unfreeze.success=Unfroze ticking
+
+tickcontrol.commands.tick.time.invalid=Invalid time: %s
+tickcontrol.commands.tick.step.success=Stepping forward %s tick(s)
+tickcontrol.commands.tick.step.fail=Unable to step forward because ticking is not frozen
+tickcontrol.commands.tick.step.stop.success=Stopped stepping
+tickcontrol.commands.tick.step.stop.fail=Unable to stop stepping forward because ticking is not stepping
+
+tickcontrol.commands.tick.sprint.success=The game is sprinting
+tickcontrol.commands.tick.sprint.stop.success=Stopped sprinting
+tickcontrol.commands.tick.sprint.stop.fail=Unable to stop sprinting because ticking is not sprinting
+tickcontrol.commands.tick.sprint.report=Sprint completed: %s ticks per second, %s ms/tick
+
+tickcontrol.commands.tick.status.frozen=Ticking is frozen
+tickcontrol.commands.tick.status.sprinting=Ticking is sprinting
+tickcontrol.commands.tick.status.lagging=Ticking is running behind
+tickcontrol.commands.tick.status.running=Ticking is running
+
+tickcontrol.commands.tick.query.rate=Target tick rate: %s per second
+tickcontrol.commands.tick.query.percentiles=Tick times (ms): P50=%s P95=%s P99=%s avg=%s

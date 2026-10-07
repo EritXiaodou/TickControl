@@ -1,108 +1,87 @@
 plugins {
-    id 'java'
-    id 'net.neoforged.gradle.userdev' version '7.0.192'
+    // RetroFuturaGradle is the maintained way to build 1.7.10 today. The classic
+    // ForgeGradle 1.2 is not usable out of the box: it needs a Gradle 2.x daemon
+    // on JDK 8, and its MCP mapping coordinates were renamed (mcp_stable:12 no
+    // longer exists; it is 12-1.7.10).
+    id 'com.gtnewhorizons.retrofuturagradle' version '2.0.2'
 }
 
 group = mod_group
 version = mod_version
-base { archivesName = "${mod_id}-neoforge-${minecraft_version}" }
 
+// Match the lowercase naming the other three targets use
+// (tickcontrol-forge-<mc>-<ver>.jar). Without this RFG falls back to the project
+// directory name and emits TickControl-Forge-1.7.10-1.0.0.jar, which is
+// inconsistent and easy to pick up as the wrong file.
+//
+// `archivesName` (Gradle 9), NOT `archivesBaseName`: the latter was removed from
+// the `base` extension and now fails with
+//     Could not set unknown property 'archivesBaseName' for extension 'base'
+base {
+    archivesName = "${mod_id}-forge-${minecraft_version}"
+}
+
+// Java 8 bytecode, but the BUILD must run on JDK 17+.
+//
+// Gradle 9.5.0 refuses to start on JDK 8 ("Gradle requires JVM 17 or later to
+// run"), and RetroFuturaGradle 2.x is built for that Gradle line. So the daemon
+// runs on JDK 17 and a Java 8 toolchain produces the actual class files -- the
+// same split the 1.16.5 project uses (Gradle on 17, release 8).
 java {
     toolchain {
-        // 必须用 21：本机 foojay 拉下来的 Adoptium 17 的 zipfs 有缺陷
-        // （FileSystems.newFileSystem(zip, Map.of("create","true")) 之后仍被判定为
-        //  read-only，写入任何条目都抛 ReadOnlyFileSystemException），
-        // 会导致 NeoForm 的 accessTransformer 步骤（jst）必然失败。
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(8)
     }
-    // 产物仍保持 Java 17 字节码，1.20.1 的运行时（Java 17）可以正常加载
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.release = 17
+}
+
+minecraft {
+    mcVersion = '1.7.10'
 }
 
 sourceSets.main {
-    // 加载器无关的核心逻辑，两个平台工程共用同一份源码。
-    // 本仓库每个分支自带工程根下的 common/ 目录，因此用 file('common/...')。
+    // Loader-agnostic core logic, shared with the other platform projects.
+    // file('common/...') and not rootProject.file(...): this is a
+    // standalone build whose rootProject is the forge-1.7.10 directory.
     java.srcDir file('common/java')
     resources.srcDir file('common/resources')
 }
 
-repositories {
-    maven {
-        name = 'NeoForged'
-        url = 'https://maven.neoforged.net/releases'
-    }
+// Both common/resources and this project's own src/main/resources contain a
+// mcmod.info (inherited from an earlier shared layout), so without a strategy Gradle fails with
+// "Entry mcmod.info is a duplicate". The project-local one is this mod's metadata, so it wins.
+processResources {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 dependencies {
-    // 1.20.1 的 NeoForge 发布在 net.neoforged:forge 下（Forge 47.1.x 分支）
-    implementation "net.neoforged:forge:${neoforge_version}"
 }
 
-runs {
-    configureEach {
-        modSource sourceSets.main
-        workingDirectory project.file('run')
-        // 开发环境从 build/classes + build/resources 加载，没有 jar manifest，
-        // 所以用 JVM 参数直接告诉 Mixin 去加载哪个配置。
-        jvmArguments '-Dmixin.configs=tickcontrol.mixins.json',
-                     '-DMixinConfigs=tickcontrol.mixins.json'
-    }
-    client {
-        client()
-    }
-    server {
-        server()
-        // NeoGradle 把 --nogui 通过 programArguments 传会被标为 deprecated，
-        // 用 arguments 更合适；同时避免开发环境下 DedicatedServer 走到
-        // 仅客户端的 LanServerPinger 分支（见 README「踩过的坑」）。
-        arguments '--nogui'
-        if (project.hasProperty('selftest')) {
-            jvmArguments '-Dtickcontrol.selftest=true', '-Dtickcontrol.selftest.stop=true'
-        }
-    }
-}
 
-tasks.named('processResources', ProcessResources).configure {
-    // mods.toml 是 common/ 里与 Forge 侧共用的一份，里面引用了 ${forge_version_range}，
-    // 所以这里两个区间都要提供（NeoForge 1.20.1 的依赖 modId 仍是 "forge"）。
-    def props = [
-        mod_id                 : mod_id,
-        mod_name               : mod_name,
-        mod_version            : mod_version,
-        mod_authors            : mod_authors,
-        mod_license            : mod_license,
-        mod_description        : mod_description,
-        minecraft_version      : minecraft_version,
-        minecraft_version_range: minecraft_version_range,
-        neoforge_version       : neoforge_version,
-        neoforge_version_range : neoforge_version_range,
-        forge_version_range    : neoforge_version_range,
-        loader_version_range   : loader_version_range,
-    ]
-    inputs.properties(props)
-    filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
-        expand props
-    }
-}
-
-tasks.named('jar', Jar).configure {
+// 1.7.10 discovers the coremod through the jar manifest, and there is no
+// MixinConfigs route at all (1.7.10 Forge ships no Mixin).
+// 1.7.10 discovers the coremod through the jar manifest. There is no
+// MixinConfigs route at all: 1.7.10 Forge ships no Mixin, and this project uses a
+// pure ASM IClassTransformer instead (see TickControlTransformer).
+//
+// Two things here are load-bearing:
+//   * The FMLCorePlugin value must name the class that implements
+//     cpw.mods.fml.relauncher.IFMLLoadingPlugin, which is the NESTED class
+//     TickControlTransformer.Core, i.e. TickControlTransformer\. Written as
+//     a single-quoted Groovy string so the \$ is literal -- in a double-quoted
+//     string Groovy would read \ as a variable and silently drop it, leaving
+//     TickControlTransformer, which FML cannot instantiate.
+//   * ForceLoadAsMod is required because this one jar is both the coremod and the
+//     mod; without it FML loads the coremod but not the @Mod class, so the /tick
+//     command never registers.
+jar {
     manifest {
         attributes([
-            'Specification-Title'     : mod_id,
-            'Specification-Vendor'    : mod_authors,
-            'Specification-Version'   : '1',
-            'Implementation-Title'    : mod_name,
-            'Implementation-Version'  : mod_version,
-            'Implementation-Vendor'   : mod_authors,
-            // Forge/NeoForge 1.20.1 通过 manifest 的 MixinConfigs 发现 Mixin 配置；
-            // mods.toml 里的 [[mixins]] 段是 1.20.5+ 的写法，1.20.1 上不生效。
-            'MixinConfigs'            : 'tickcontrol.mixins.json',
+            'FMLCorePlugin'              : 'com.tamamo.tickcontrol.core.TickControlTransformer$Core',
+            'FMLCorePluginContainsFMLMod': 'true',
+            'ForceLoadAsMod'             : 'true',
         ])
     }
 }

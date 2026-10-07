@@ -1,36 +1,50 @@
+
 package com.tamamo.tickcontrol.core;
 
-import com.tamamo.tickcontrol.command.TickControl;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 import net.minecraft.server.MinecraftServer;
 
 /**
- * 按 {@link MinecraftServer} 实例取默认的 {@link ServerTickController}。
+ * 按 {@link MinecraftServer} 实例取默认的 {@link ServerTickController}（1.7.10 版）。
  *
- * <p>两个名字域的薄 Mixin（见 {@code MinecraftServerMixinDev} /
- * {@code MinecraftServerMixinSrg}）都把逻辑委托给 {@link ServerLoop}，
- * 而逻辑需要一个稳定的控制器实例，因此统一从这里取：
+ * <p><b>为什么自带注册表而不复用 command 包的那个</b>：1.12.2 版本里这张表放在
+ * {@code command.TickControl}，而 1.7.10 的命令层必须整体重写（legacy {@code ICommand}
+ * 与 1.12.2 不同），把 core 绑到 command 上会形成无谓的编译依赖与循环风险。
+ * 这里自带一张 {@link WeakHashMap}，core 层就完全自包含。
  *
- * <ul>
- *   <li>平台入口（{@code TickControlForge}）已经登记过就直接复用；</li>
- *   <li>没有则创建并登记，保证命令层与主循环看到的是同一个实例。</li>
- * </ul>
- *
- * <p>只在注入方法体内调用（不在 Mixin 的字段初始化器里），
- * 避免在目标类构造阶段过早执行。
+ * <p>用 {@link WeakHashMap} 而不是静态单例：单人游戏退出世界再进新世界会换一个
+ * {@code MinecraftServer} 实例，静态单例会把上一个实例的控制器带过去。
  */
 public final class TickControlAccessHolder {
+
+    private static final Map<MinecraftServer, ServerTickController> CONTROLLERS =
+            new WeakHashMap<MinecraftServer, ServerTickController>();
 
     private TickControlAccessHolder() {
     }
 
+    /** 取该服务器的控制器；没有就新建并登记，保证命令层与主循环看到同一个实例。 */
     public static ServerTickController controller(MinecraftServer server) {
-        TickControlAccess existing = TickControl.forServer(server);
-        if (existing instanceof ServerTickController controller) {
-            return controller;
+        synchronized (CONTROLLERS) {
+            ServerTickController existing = CONTROLLERS.get(server);
+            if (existing != null) {
+                return existing;
+            }
+            ServerTickController created = new ServerTickController();
+            CONTROLLERS.put(server, created);
+            return created;
         }
-        ServerTickController created = new ServerTickController();
-        TickControl.register(server, created);
-        return created;
+    }
+
+    /** 只查不建；命令来源拿不到服务器时返回 {@code null}。 */
+    public static ServerTickController getOrNull(MinecraftServer server) {
+        if (server == null) {
+            return null;
+        }
+        synchronized (CONTROLLERS) {
+            return CONTROLLERS.get(server);
+        }
     }
 }

@@ -1,0 +1,36 @@
+# TickControl — 1.7.10 简体中文语言文件
+#
+# 1.7.10 读的是旧的 key=value .lang 格式(与 1.12.2 相同),不是 .json。
+# 以 # 开头的是注释。%s 是 ChatComponentTranslation 传入的位置参数。
+tickcontrol.commands.tick.no.server=TickControl:无法获取服务器实例
+
+tickcontrol.commands.tick.usage=/tick <query|rate <速率>|freeze|unfreeze|step [<时间>|stop]|sprint [<时间>|stop]>
+
+tickcontrol.commands.tick.rate.usage=用法:/tick rate <速率>
+tickcontrol.commands.tick.rate.notanumber=不是有效数字:%s
+tickcontrol.commands.tick.rate.range=速率必须在 %s 到 %s 之间
+tickcontrol.commands.tick.rate.success=已将目标游戏刻速率设为每秒 %s 刻
+tickcontrol.commands.tick.rate.unsupported=1.7.10 不支持修改游戏刻速率
+
+tickcontrol.commands.tick.freeze.fail.sprinting=无法冻结:游戏正在快进
+tickcontrol.commands.tick.freeze.success=游戏已冻结
+tickcontrol.commands.tick.unfreeze.success=游戏已解冻
+
+tickcontrol.commands.tick.time.invalid=无效的时间:%s
+tickcontrol.commands.tick.step.success=正在向前步进 %s 刻
+tickcontrol.commands.tick.step.fail=无法步进:游戏刻未冻结
+tickcontrol.commands.tick.step.stop.success=已停止步进
+tickcontrol.commands.tick.step.stop.fail=无法停止步进:当前没有正在进行的步进
+
+tickcontrol.commands.tick.sprint.success=游戏正在快进
+tickcontrol.commands.tick.sprint.stop.success=已停止快进
+tickcontrol.commands.tick.sprint.stop.fail=无法停止快进:当前没有正在进行的快进
+tickcontrol.commands.tick.sprint.report=快进完成:每秒 %s 刻,每刻 %s 毫秒
+
+tickcontrol.commands.tick.status.frozen=游戏已冻结
+tickcontrol.commands.tick.status.sprinting=游戏正在快进
+tickcontrol.commands.tick.status.lagging=游戏运行落后
+tickcontrol.commands.tick.status.running=游戏正常运行
+
+tickcontrol.commands.tick.query.rate=目标游戏刻速率:每秒 %s 刻
+tickcontrol.commands.tick.query.percentiles=每刻耗时(毫秒):P50=%s P95=%s P99=%s 平均=%s

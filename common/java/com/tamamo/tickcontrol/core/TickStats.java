@@ -1,3 +1,4 @@
+
 package com.tamamo.tickcontrol.core;
 
 import java.util.Arrays;
