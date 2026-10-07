@@ -725,9 +725,45 @@ public final class ServerLoop {
     }
 
     /** 每刻开头：刷新「本刻游戏内容是否推进」，并采集每刻耗时样本。 */
+    /**
+     * 客户端环境粒子是否应当被抑制。
+     *
+     * <p>由服务器刻在 {@link #prepareTick} 里写入,由客户端 Mixin 读取 ——
+     * 客户端代码拿不到服务端控制器,所以用一个静态标志传递。
+     *
+     * <p>{@code volatile} 是必要的:集成服务器与客户端虽在同进程,但粒子生成发生在
+     * 渲染线程,不保证同一线程可见性。
+     */
+    private static volatile boolean frozenForClientFx;
+
+    /**
+     * 冻结时是否应当抑制客户端<b>环境粒子</b>(熔炉火焰/烟、火把、岩浆、传送门)。
+     *
+     * <h2>为什么服务端门控管不到它</h2>
+     *
+     * <p>服务端门控刻意不碰客户端:冻住客户端会让玩家自己的挖掘/放置失去反馈。
+     * 但环境粒子是<b>客户端自己按帧生成的</b>,与服务器刻无关,于是冻结后熔炉照样冒烟
+     * —— 用户先在 1.12.2 上发现,随后确认 1.16.5~1.20.1 同样存在。
+     *
+     * <h2>为什么拦一个方法就够</h2>
+     *
+     * <p>已用 ASM 按<b>方法形状</b>(而非名字)扫过 1.18.2 的 srg jar:每个方块的环境粒子钩子
+     * {@code Block.m_7100_(BlockState, Level, BlockPos, Random)V} 在客户端侧
+     * <b>只有一处调用者</b> —— {@code ClientLevel.m_194142_}。其余是 {@code StairBlock}
+     * 调用自己的 {@code super} 以及服务端变体 {@code m_7455_}/{@code m_7458_}。
+     *
+     * <p><b>玩家自己的粒子不受影响</b>:那类粒子走 {@code Level.addParticle},不经过这里。
+     */
+    public static boolean shouldSuppressAmbientParticles() {
+        return frozenForClientFx;
+    }
+
     public static void prepareTick(MinecraftServer server) {
         ServerTickController controller = TickControlAccessHolder.controller(server);
         controller.prepareTick();
+        // 把"本刻游戏内容是否推进"同步给客户端可见的标志(见 shouldSuppressAmbientParticles)。
+        // 必须在 prepareTick() 之后读,否则拿到的是上一刻的取值。
+        frozenForClientFx = !controller.runsNormally();
         controller.stats().replaceSamples(tickTimes(server));
         SelfTest.tick(server);
     }

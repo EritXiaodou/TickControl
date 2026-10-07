@@ -61,6 +61,19 @@ public final class TickControlMixinPlugin implements IMixinConfigPlugin {
     private static final String DEV_VARIANT = "com.tamamo.tickcontrol.mixin.MinecraftServerMixinDev";
     private static final String SRG_VARIANT = "com.tamamo.tickcontrol.mixin.MinecraftServerMixinSrg";
 
+    /**
+     * 客户端环境粒子的两个变体。
+     *
+     * <p>它们与主循环变体<b>必须一起选择</b>：名字域是全局事实，不存在
+     * "服务端用 SRG 而客户端用 MCP"的情况。漏掉这里会让两个客户端变体同时生效，
+     * 其中一个必然因为名字对不上而让 {@code require = 1} 抛错。
+     */
+    private static final String CLIENT_DEV_VARIANT =
+            "com.tamamo.tickcontrol.mixin.ClientLevelMixinDev";
+    private static final String CLIENT_SRG_VARIANT =
+            "com.tamamo.tickcontrol.mixin.ClientLevelMixinSrg";
+
+
     private static final String TARGET = "net.minecraft.server.MinecraftServer";
     /** {@code MinecraftServer.running} 的 SRG 名；出现即生产环境。 */
     private static final String SRG_PROBE = "f_129764_";
@@ -87,6 +100,13 @@ public final class TickControlMixinPlugin implements IMixinConfigPlugin {
             return !srg;
         }
         if (SRG_VARIANT.equals(mixinClassName)) {
+            return srg;
+        }
+        // 客户端粒子变体（判据相同：名字域是全局事实）
+        if (CLIENT_DEV_VARIANT.equals(mixinClassName)) {
+            return !srg;
+        }
+        if (CLIENT_SRG_VARIANT.equals(mixinClassName)) {
             return srg;
         }
         return true;
