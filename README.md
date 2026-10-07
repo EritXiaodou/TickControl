@@ -1,4 +1,8 @@
-将1.20.3引入的[tick](https://zh.minecraft.wiki/w/%E5%91%BD%E4%BB%A4/tick)指令在1.20.1-neoforge、1.20.1-forge、1.19.2-forge、1.18.2-forge上实现<br>
+将1.20.3引入的[tick](https://zh.minecraft.wiki/w/%E5%91%BD%E4%BB%A4/tick)指令在1.20.1-neoforge、1.20.1-forge、1.19.2-forge、1.18.2-forge、1.17.1-forge、1.16.5-forge、1.12.2-forge、1.7.10-forge上实现<br>
+其中1.12.2包含两个两个版本:<br>
+内置mixin与使用mixinbooter的版本<br>
+两者可以同时添加，同时添加时内置mixin的版本惰性加载，mixinbooter优先加载<br>
+如果你下载的是mixinbooter版本请一定要安装mixinbooter作为前置,如果你下载的是内置mixin的版本可以无视这条<br>
 查询当前的游戏刻流逝状态及目标游戏刻速率，以及有关游戏刻的性能数据，包括每游戏刻的平均用时和用时的百分位数。<br>
 <summary><code>tick query</code></summary><br>
 设置目标游戏刻速率。<br>
