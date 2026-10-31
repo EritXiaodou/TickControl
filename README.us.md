@@ -1,5 +1,5 @@
 **English**<br>
-[简体中文](./README.zh.md) | [English](./README.us.md)
+[简体中文](./README.md) | [English](./README.us.md)
 
 **What does this mod do?**<br>
 This mod backports the new tick command added in 1.20.3.<br>
