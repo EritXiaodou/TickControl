@@ -1,3 +1,5 @@
+**简体中文** | [简体中文](./README.zh.md) | [English](./README.us.md)
+
 **该Mod做了什么**<br>
 将1.20.3引入的[tick](https://zh.minecraft.wiki/w/%E5%91%BD%E4%BB%A4/tick)指令在1.20.1-neoforge、1.20.1-forge、1.19.2-forge、1.18.2-forge、1.17.1-forge、1.16.5-forge、1.12.2-forge、1.7.10-forge上实现<br>
 其中1.12.2包含两个两个版本:<br>
